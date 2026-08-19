@@ -90,38 +90,98 @@ return {
       }
     }
 
-    const fetchPlugins = async () => {
+    // 判断 WebError 是否属于"接缝层无可用 provider"（而非网络/传输错误）。
+    // 这类错误意味着 ctx.web 虽有服务、但宿主没装任何可用的 fetch provider，
+    // 此时降级到 shell 抓取；其余错误（超时、DNS、TLS、非 2xx）如实返回。
+    const isProviderUnavailable = (e) => {
+      const code = e && e.code ? e.code : ''
+      return code === 'WEB_PROVIDER_UNAVAILABLE'
+        || code === 'WEB_PROVIDER_AMBIGUOUS'
+        || code === 'WEB_PROVIDER_CONFIGURED_MISSING'
+        || code === 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE'
+    }
+
+    // 降级通道 1：通过 web 服务抓取（官方 provider，自动选择/复用宿主已装的 fetch provider）。
+    const fetchViaWeb = async (url) => {
       const web = ctx.get('web')
-      if (!web) {
-        return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'NO_WEB', message: '当前环境未挂载 web 数据源服务' } }
-      }
+      if (!web) return { ok: false, fallback: true, error: { code: 'NO_WEB', message: '当前环境未挂载 web 服务' } }
       try {
-        const items = []
-        let totalCount = 0
-        for (let page = 1; page <= 2; page++) {
-          const url = 'https://api.github.com/search/repositories?q=topic:' + TOPIC + '&sort=stars&order=desc&per_page=100&page=' + page
-          const res = await web.fetch({ url })
-          if (!res || typeof res.statusCode !== 'number') {
-            return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'FETCH_FAILED', message: '数据源请求失败' } }
-          }
-          if (res.statusCode !== 200) {
-            return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'HTTP_' + res.statusCode, message: 'GitHub API 返回 ' + res.statusCode + (res.statusCode === 403 ? '（可能触发限流，请稍后重试）' : '') } }
-          }
-          const body = res.body && res.body.content
-          let parsed = null
-          try { parsed = JSON.parse(typeof body === 'string' ? body : '') } catch (e) { parsed = null }
-          if (!parsed || !Array.isArray(parsed.items)) {
-            return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'BAD_BODY', message: '数据源返回结构无法解析' } }
-          }
-          totalCount = typeof parsed.total_count === 'number' ? parsed.total_count : 0
-          items.push(...parsed.items)
-          if (items.length >= Math.min(totalCount, MAX_REPOS)) break
+        const res = await web.fetch({ url })
+        if (!res || typeof res.statusCode !== 'number') {
+          return { ok: false, fallback: true, error: { code: 'FETCH_FAILED', message: '数据源请求失败' } }
         }
-        const plugins = items.map(normalize).filter(Boolean)
-        return { plugins: plugins, total: plugins.length, fetchedAt: Date.now(), error: null }
+        const body = res.body && res.body.content
+        return { ok: true, statusCode: res.statusCode, body: typeof body === 'string' ? body : '' }
       } catch (e) {
-        return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'FETCH_EXC', message: (e && e.message ? e.message : String(e)) } }
+        // 接缝层没有可用 provider → 需要降级到 shell；否则按网络错误返回。
+        if (isProviderUnavailable(e)) {
+          return { ok: false, fallback: true, error: { code: 'NO_PROVIDER', message: e.message || '无可用 web fetch provider' } }
+        }
+        return { ok: false, fallback: false, error: { code: 'WEB_ERR', message: e && e.message ? e.message : String(e) } }
       }
+    }
+
+    // 降级通道 2：通过 shell（Windows 上优先 curl.exe，若不可用退回 pwsh）抓取原始 JSON 文本。
+    const fetchViaShell = async (url) => {
+      const shell = ctx.get('shell')
+      if (!shell) return { ok: false, error: { code: 'NO_SHELL', message: '当前环境未挂载 shell 服务，无法降级抓取' } }
+      const attempts = [
+        'curl.exe -s --max-time 25 -H "User-Agent: dsh-plugin-market" -H "Accept: application/vnd.github+json" "' + url + '"',
+        'powershell -NoProfile -NonInteractive -Command "$r = Invoke-WebRequest -UseBasicParsing -Uri \'' + url + '\' -TimeoutSec 25; $r.Content"',
+      ]
+      for (const command of attempts) {
+        try {
+          const spec = shell.resolve({ command: command, timeoutMs: 30000, stdoutMaxBytes: 1048576 })
+          const result = await shell.run(spec)
+          const out = (result.stdout && result.stdout.text) || ''
+          if (result.exitCode === 0 && out && out.trim()) {
+            return { ok: true, statusCode: 200, body: out }
+          }
+          // 尝试下一条命令
+        } catch (e) {
+          // 尝试下一条命令
+        }
+      }
+      return { ok: false, error: { code: 'SHELL_ERR', message: 'shell 抓取失败（curl 与 powershell 均不可用或出错）' } }
+    }
+
+    // 抓取一页：web 优先，provider 缺失时自动降级 shell。返回 { ok, statusCode, body, error?, used }。
+    const fetchOnePage = async (url) => {
+      const viaWeb = await fetchViaWeb(url)
+      if (viaWeb.ok) return { ok: true, statusCode: viaWeb.statusCode, body: viaWeb.body, used: 'web' }
+      if (!viaWeb.fallback) {
+        // web 确实在、也确实有 provider，只是网络层失败 → 不降级，如实返回错误。
+        return { ok: false, used: 'web', error: viaWeb.error }
+      }
+      const viaShell = await fetchViaShell(url)
+      if (viaShell.ok) return { ok: true, statusCode: viaShell.statusCode, body: viaShell.body, used: 'shell' }
+      // provider 缺失 且 shell 也不可用 → 报错并说明。
+      return { ok: false, used: 'none', error: viaShell.error || viaWeb.error }
+    }
+
+    const fetchPlugins = async () => {
+      const items = []
+      let totalCount = 0
+      for (let page = 1; page <= 2; page++) {
+        const url = 'https://api.github.com/search/repositories?q=topic:' + TOPIC + '&sort=stars&order=desc&per_page=100&page=' + page
+        const pageRes = await fetchOnePage(url)
+        if (!pageRes.ok) {
+          return { plugins: [], total: 0, fetchedAt: 0, error: Object.assign({ code: pageRes.error.code, message: pageRes.error.message }, pageRes.error) }
+        }
+        if (pageRes.statusCode !== 200) {
+          return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'HTTP_' + pageRes.statusCode, message: 'GitHub API 返回 ' + pageRes.statusCode + (pageRes.statusCode === 403 ? '（可能触发限流，请稍后重试）' : '') } }
+        }
+        let parsed = null
+        try { parsed = JSON.parse(pageRes.body) } catch (e) { parsed = null }
+        if (!parsed || !Array.isArray(parsed.items)) {
+          return { plugins: [], total: 0, fetchedAt: 0, error: { code: 'BAD_BODY', message: '数据源返回结构无法解析' } }
+        }
+        totalCount = typeof parsed.total_count === 'number' ? parsed.total_count : 0
+        items.push(...parsed.items)
+        if (items.length >= Math.min(totalCount, MAX_REPOS)) break
+      }
+      const plugins = items.map(normalize).filter(Boolean)
+      return { plugins: plugins, total: plugins.length, fetchedAt: Date.now(), error: null }
     }
 
     const getList = async (refresh) => {

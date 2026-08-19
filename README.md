@@ -4,7 +4,7 @@
 
 ## 功能一览
 
-- **数据源**：GitHub Search API `q=topic:dsh-plugin`（≤2 页 / 200 仓库），10 分钟缓存 + 单飞防并发；任何失败（无 web 服务、非 2xx、限流 403、解析失败）均返回结构化错误。
+- **数据源**：GitHub Search API `q=topic:dsh-plugin`（≤2 页 / 200 仓库），10 分钟缓存 + 单飞防并发。**双模式抓取**：优先走宿主 `ctx.web`（官方 fetch provider），当接缝检测到"无可用 provider"时自动降级用 shell（curl / Invoke-WebRequest）抓取固定源，装上即用、不依赖宿主配置。
 - **排序**（7 种 + 有更新优先）：发布时间↓/↑、星标↓/↑、Fork↓、最近更新、名称 A–Z、有更新优先。
 - **搜索与筛选**：名称关键词（匹配名称/描述/标签）、带计数的标签 chips、只看关注、只看已安装。
 - **关注跟踪**：关注/取关，持久化到工作区 `.dsh-plugin-market/state.json`。
@@ -55,7 +55,8 @@ plugin-market/
 
 ## 已知环境限制
 
-- **无外网**：市场列表显示"数据源请求失败"错误态并带"重试"（计划内降级）；有网络的机器上即可正常加载。
+- **无外网 / shell 两条通道都失败**：市场列表显示"数据源请求失败"错误态并带"重试"（计划内降级）；有网络的机器上即可正常加载。
+- **关于 `ctx.web`**：默认 `pnpm dsh web` 的官方 host 组合因 SSRF 安全考量**未装配 fetch provider**，`ctx.web` 空有服务、无可用 provider → `web.fetch()` 抛 `WEB_PROVIDER_UNAVAILABLE`。本插件据此**自动降级 shell 抓取**（仅访问 GitHub 固定 API，风险面受控），不影响列表加载。若想在宿主层面启用标准的 `ctx.web.fetch()`（让任意插件受益），可在宿主组合 / `$DSH_HOME/cordis.patch.yml` 装配 `@deepseek-ai/dsh-web-fetch-http`，装配后本插件会自动回到 web 通道。
 - **无 `dsh` CLI / shell 服务**：安装/更新/卸载返回 `requires-manual`（`failed`）并展示可复制的完整命令，不崩溃、不假写已安装状态。
 - **`fs` 不可用**：关注/已安装状态仅本次运行有效（内存），UI 无持久化提示。
 - "有更新"为启发式（GitHub `pushed_at` 与安装时间比较），不代表发布新版本；权威更新请以 `dsh plugin update` 结果为准。
