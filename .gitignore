@@ -1,0 +1,12 @@
+# 依赖与构建产物
+node_modules/
+dist/
+lib/
+*.log
+
+# 运行时导出产物（不进入版本库）
+exports/
+
+# 编辑器/系统
+.DS_Store
+Thumbs.db

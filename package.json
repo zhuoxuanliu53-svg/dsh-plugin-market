@@ -1,0 +1,10 @@
+{
+  "name": "dsh-plugin-market",
+  "version": "2.0.0",
+  "private": true,
+  "description": "插件市场：从 GitHub Topic dsh-plugin 浏览/搜索/排序/关注/安装/更新/卸载 DSH 插件，支持名单导出导入（组合包）。",
+  "type": "module",
+  "files": [
+    "src"
+  ]
+}
