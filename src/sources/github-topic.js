@@ -1,10 +1,3 @@
-/**
- * github-topic — 辅助数据源：GitHub Search API 的 topic:dsh-plugin。
- *
- * 低频补充：未认证限流 10 次/分，故缓存 TTL 较长（30 分钟），并在限流时
- * 明确报错而不是静默。可选 PAT token 走认证头提限（30 次/分）。
- */
-
 import { fetchJson } from '../net.js'
 import { fromGithub } from '../entities.js'
 
@@ -15,11 +8,6 @@ const CACHE_TTL = 30 * 60 * 1000 // 低频源：30 分钟
 
 let cache = { at: 0, plugins: null }
 
-/**
- * 抓取 GitHub topic 仓库列表，返回 Result<{ plugins }>。
- * @param {string} [token] 可选 PAT（提限用）
- * @param {number} [timeoutMs]
- */
 export async function fetchGithubTopic(token = '', timeoutMs = 15000) {
   const now = Date.now()
   if (cache.plugins !== null && now - cache.at < CACHE_TTL) {

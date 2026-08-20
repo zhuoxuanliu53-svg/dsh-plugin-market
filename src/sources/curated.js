@@ -1,10 +1,3 @@
-/**
- * curated — 主数据源：awesome-dsh-plugin.com 的 curated registry。
- *
- * 每次调用都向源站校验新鲜度（ETag → 304 只拿 0 字节），失败则如实报错，
- * 绝不拿过期快照糊弄。只在内存里记一份「上次被源站确认有效」的数据。
- */
-
 import { marketFetch } from '../net.js'
 import { fromCurated } from '../entities.js'
 
@@ -13,10 +6,6 @@ const REGISTRY_URL = process.env.DSHM_REGISTRY_URL ?? 'https://awesome-dsh-plugi
 // 上次被源站确认有效的数据 + 校验器（etag）。只在内存，不做磁盘缓存。
 let served = { etag: null, data: null }
 
-/**
- * 抓取并解析 curated registry，返回 Result<{ plugins, updated, count }>。
- * @param {number} [timeoutMs]
- */
 export async function fetchCurated(timeoutMs = 15000) {
   const headers = {}
   if (served.etag !== null) headers['if-none-match'] = served.etag

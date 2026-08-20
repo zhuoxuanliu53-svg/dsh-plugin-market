@@ -1,19 +1,7 @@
-/**
- * sources — 双源编排（System）。
- *
- * 拉取 curated（主）与 github-topic（辅），按 fullName 去重合并，
- * 产出单一 PluginEntry 列表，每条带 source 标记供 UI 区分徽标。
- * 单个源失败不阻断另一个：curated 失败时仍返回 github 结果（并附 warning）。
- */
-
 import { fetchCurated } from './curated.js'
 import { fetchGithubTopic } from './github-topic.js'
 import { mergeSources } from '../entities.js'
 
-/**
- * 拉取并合并两个来源，返回 Result<{ merged, curated, community, fetchedAt, warnings }>。
- * @param {object} [opts] { token?: string, timeoutMs?: number }
- */
 export async function fetchAllSources(opts = {}) {
   const token = typeof opts.token === 'string' ? opts.token : ''
   const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : 15000

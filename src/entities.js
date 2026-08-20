@@ -1,16 +1,3 @@
-/**
- * entities — 纯数据实体与归一化器（ECS 的 E + C）。
- *
- * PluginEntry 是市场里的一条插件，只是字段容器，不含任何行为。
- * 两个来源（curated / github-topic）各自归一化到同一个 PluginEntry 形状，
- * 使上层（排序/筛选/UI）只面对一种实体。
- *
- * Component（可组合的数据面）：
- *   - source 字段即 SourceMeta 的精简表达（来源 + 是否审核 + 原始 URL）
- *   - InstallState / FollowState 由 contracts.js 归一化，这里不重复
- */
-
-/** 把 curated registry 条目归一化为 PluginEntry。 */
 export function fromCurated(entry) {
   if (!entry || typeof entry !== 'object') return null
   const name = typeof entry.name === 'string' ? entry.name : ''
@@ -45,7 +32,6 @@ export function fromCurated(entry) {
   }
 }
 
-/** 把 GitHub Search API 的 repository 归一化为 PluginEntry。 */
 export function fromGithub(repo) {
   if (!repo || typeof repo !== 'object') return null
   const fullName = typeof repo.full_name === 'string' ? repo.full_name : ''
@@ -74,12 +60,6 @@ export function fromGithub(repo) {
   }
 }
 
-/**
- * 按 fullName（小写）去重合并两个来源的条目。
- * 规则：curated 在前，github-topic 去重后接在后面；同名时 curated 胜出。
- * @param {Array} curated
- * @param {Array} github
- */
 export function mergeSources(curated, github) {
   const seen = new Set()
   const merged = []

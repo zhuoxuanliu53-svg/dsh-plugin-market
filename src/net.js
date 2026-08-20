@@ -1,14 +1,3 @@
-/**
- * net — 出站 HTTP 的唯一出口（单一职责）。
- *
- * 正式插件跑在完整 Node 里，可用全局 fetch。为了"别人也能用"，这里补上
- * 代理感知：Node 全局 fetch 忽略 HTTP(S)_PROXY，而 undici 的 EnvHttpProxyAgent
- * 会读取并遵守它（本机 schannel 缺凭据、或只有本地代理出网的机器都能受益）。
- *
- * 策略：无代理 → 全局 fetch；有代理且 undici 可导入 → undici fetch + 显式 agent；
- * undici 不可用 → 退回全局 fetch（宁可用直连也不崩）。
- */
-
 let undiciMod = null
 let undiciAgent = null
 let undiciResolved = false
@@ -17,7 +6,6 @@ function pickProxy(raw) {
   return raw === undefined || raw.trim() === '' ? null : raw.trim()
 }
 
-/** 本进程应使用的代理（若配置了）。规则同 undici：小写优先，https 回退 http。 */
 export function configuredProxy() {
   const https = pickProxy(process.env.https_proxy ?? process.env.HTTPS_PROXY)
   return https ?? pickProxy(process.env.http_proxy ?? process.env.HTTP_PROXY)
@@ -37,12 +25,6 @@ async function ensureUndici() {
   return undiciMod
 }
 
-/**
- * 抓取一个 URL，返回 Result<{ statusCode, body }>。
- * @param {string} url
- * @param {object} [init] 透传给 fetch 的选项（headers / signal 等）
- * @param {number} [timeoutMs] 超时毫秒（0 表示不设）
- */
 export async function marketFetch(url, init, timeoutMs = 0) {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
   let timer = null
@@ -81,12 +63,6 @@ export async function marketFetch(url, init, timeoutMs = 0) {
   }
 }
 
-/**
- * 抓取并解析 JSON，返回 Result<parsed>。非 2xx / 解析失败都归为错误 Result。
- * @param {string} url
- * @param {object} [headers] 附加请求头
- * @param {number} [timeoutMs]
- */
 export async function fetchJson(url, headers, timeoutMs = 15000) {
   const mergedHeaders = {
     'accept': 'application/json',

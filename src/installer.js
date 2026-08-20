@@ -1,13 +1,3 @@
-/**
- * installer — 安装/更新/卸载 + 装后校验（System）。
- *
- * 通过 node:child_process 重调起本进程的 dsh CLI（`dsh plugin --profile <p> <verb>`），
- * 而不是 ctx.shell：正式插件里的 shell 服务是 agent 沙箱执行器，会拒绝对 profile 目录的写。
- *
- * 装后校验：装完检查每个新增包是否有可加载入口 / 是否声明 dsh 元数据 / loader id 冲突，
- * 失败则立即卸载并报因，防止"下次 boot 起不来"。
- */
-
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -66,7 +56,6 @@ function spawnEnv() {
   return { ...process.env, CI: 'true', PATH: parts.join(sep) }
 }
 
-/** 重调起本进程的 dsh CLI（优先进程入口，回退 PATH 上的 dsh）。 */
 function dshArgv() {
   const entry = process.argv[1]
   if (entry !== undefined && /[\\/](?:bin\.(?:js|ts)|dsh)$/.test(entry)) {
@@ -88,7 +77,6 @@ function killChild(child) {
   child.kill('SIGKILL')
 }
 
-/** 运行一条 dsh plugin 命令，返回 { exitCode, timedOut, stdout, stderr, cancelled }。 */
 export function runPlugin(profile, pluginArgs, timeoutMs = INSTALL_TIMEOUT_MS) {
   const { file, args, cwd, viaShell } = dshArgv()
   const fullArgs = [...args, 'plugin', '--profile', profile, ...pluginArgs]
@@ -121,13 +109,11 @@ export function runPlugin(profile, pluginArgs, timeoutMs = INSTALL_TIMEOUT_MS) {
 
 // ---- 目标名与 spec ----
 
-/** 安装 spec：curated 有 npm 名用 npm 名，否则 github:owner/repo。 */
 export function installSpecFor(entry) {
   if (entry && typeof entry.npm === 'string' && entry.npm !== '') return entry.npm
   return `github:${entry.fullName}`
 }
 
-/** 从 fullName 取 repo 名（owner/repo → repo）。 */
 export function repoNameOf(fullName) {
   const parts = String(fullName).split('/')
   return parts[1] || parts[0] || fullName
@@ -137,7 +123,6 @@ function commandLabel(verb, profile, spec) {
   return `dsh plugin --profile ${profile} ${verb} ${spec}`
 }
 
-/** 把 run 结果转成用户可读的失败说明。 */
 function describeRun(run, verb, spec, profile) {
   if (run.timedOut) return `命令超时：${commandLabel(verb, profile, spec)}`
   const tail = (run.stderr || run.stdout || '').split('\n').slice(-5).join('\n').trim()
@@ -146,10 +131,6 @@ function describeRun(run, verb, spec, profile) {
 
 // ---- 装后校验 ----
 
-/**
- * 校验刚装进 profile 的包（按 installed 包名）。
- * @returns {Array} 问题描述数组，空数组表示通过。
- */
 function verifyPackage(profileDirectory, name) {
   const issues = []
   const dir = join(profileDirectory, 'node_modules', name)
@@ -164,12 +145,6 @@ function verifyPackage(profileDirectory, name) {
 
 // ---- 对外操作 ----
 
-/**
- * 安装一个插件，返回 Result<{ packageName, spec, run }>。
- * @param {string} profile
- * @param {object} entry PluginEntry
- * @param {string} [explicitDir]
- */
 export async function installOne(profile, entry, explicitDir) {
   const spec = installSpecFor(entry)
   const before = readInstalled(profile, explicitDir)
@@ -207,7 +182,6 @@ export async function installOne(profile, entry, explicitDir) {
   return ok({ packageName: added[0], spec, run, verify: { added, state: 'ok' } })
 }
 
-/** 更新一个插件（按已安装的包名）。 */
 export async function updateOne(profile, packageName, explicitDir) {
   const run = await runPlugin(profile, ['update', packageName])
   if (run.exitCode !== 0 || run.timedOut) {
@@ -219,7 +193,6 @@ export async function updateOne(profile, packageName, explicitDir) {
   return ok({ packageName, run })
 }
 
-/** 卸载一个插件（按已安装的包名）。 */
 export async function removeOne(profile, packageName, explicitDir) {
   const run = await runPlugin(profile, ['remove', packageName], REMOVE_TIMEOUT_MS)
   if (run.exitCode !== 0 || run.timedOut) {

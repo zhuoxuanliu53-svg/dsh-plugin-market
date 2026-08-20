@@ -1,19 +1,8 @@
-/**
- * manifest — 组合包导出/导入（System）。
- *
- * 组合包是一个 JSON 名单，让其他人一键复刻同样的插件配置。
- * 格式 version 2（向下兼容 v1）：
- *   { format: 'dsh-plugin-market', version: 2, exportedAt, profile,
- *     plugins: [{ fullName, followed, autoUpdate }],
- *     commands: ['dsh plugin --profile <p> add <spec>', ...] }
- */
-
 import { ok, err, E } from './result.js'
 import { isFullName } from './contracts.js'
 
 const FORMAT = 'dsh-plugin-market'
 
-/** 由当前状态构建组合包（纯函数，不含 I/O）。 */
 export function buildManifest(state, profile) {
   const installed = state && state.installed && typeof state.installed === 'object' ? state.installed : {}
   const follows = state && Array.isArray(state.follows) ? state.follows : []
@@ -39,10 +28,6 @@ export function buildManifest(state, profile) {
   }
 }
 
-/**
- * 解析组合包文本，返回 Result<{ plugins, commands }>。
- * 兼容 v1（无 version 字段）。
- */
 export function parseManifest(text) {
   if (typeof text !== 'string' || text.trim() === '') {
     return err(E.INVALID_ARG, '清单为空')

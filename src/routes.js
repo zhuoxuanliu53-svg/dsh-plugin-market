@@ -1,12 +1,3 @@
-/**
- * routes — HTTP 薄层（System）。
- *
- * 只做三件事：解析请求 → 调用 service 模块（sources/installer/hot/manifest）→ 序列化响应。
- * 进程 spawn 在 installer，文件读写归 profile/hot/state，这里不越界。
- *
- * 安全：所有 POST 做同源校验；安装源必须在 registry 白名单内。
- */
-
 import { ok, err, E } from './result.js'
 import { isFullName } from './contracts.js'
 import { fetchAllSources } from './sources/index.js'
@@ -54,7 +45,6 @@ async function readJsonBody(request, maxBytes = 8192) {
 
 const REGISTRY_CACHE_TTL = 5 * 60 * 1000
 
-/** 创建市场 HTTP 服务，注册所有路由，返回 disposer。 */
 export function createMarketServer(host, config) {
   const profile = config.profile
   const profileDirectory = profileDir(profile)

@@ -1,26 +1,9 @@
-/**
- * hot — 热禁用/启用（System）。
- *
- * 通过写 profile 的用户补丁层 cordis.patch.yml 实现：
- *   - 禁用：追加 `- id: <rowId>` + `  disabled: true`
- *   - 启用：移除该块，或当低层（bundle）压制时追加 `disabled: false` 强制开启
- *
- * DSH 的配置监听（HMR）在保存后约 1s 内重组合树，无需重启；loader 每次 boot
- * 重新应用同一文件，所以选择跨重启存续——走的是官方机制，不是私有状态。
- *
- * 安全（沿用 dsh-plugin-hub 的既有实现）：
- *   - 写操作串行化，防止并发读改写交错；
- *   - 补丁文件不是合法条目数组时拒绝追加，绝不把坏文件改得更坏；
- *   - 宿主基础设施行（webserver / storage / settings 等）拒绝开关。
- */
-
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ok, err, E } from './result.js'
 import { bundlePatchInsertedIds, parsePatchRows } from './profile.js'
 
-/** 宿主基础设施行：禁用会打断补丁层赖以运行的链路，拒绝开关。 */
 const PROTECTED_MODULE_PATTERNS = [
   /^cordis:/u,
   /^@deepseek-ai\/cordis-plugin-/u,
@@ -67,18 +50,11 @@ const PROTECTED_MODULE_PATTERNS = [
   /^@deepseek-ai\/dsh-repeat-tool-reminder$/u,
 ]
 
-/** 判断模块名是否在宿主基础设施链上（不可开关）。 */
 export function isProtectedModule(moduleName) {
   return typeof moduleName === 'string'
     && PROTECTED_MODULE_PATTERNS.some((pattern) => pattern.test(moduleName))
 }
 
-/**
- * 解析用户补丁层路径。优先取 loader 里 cordis:include 条目实际读的路径，
- * 回退到约定位置 <profile>/cordis.patch.yml。
- * @param {Iterable} loaderEntries loader.entries() 的结果
- * @param {string} profileDir profile 目录
- */
 export function findUserPatchPath(loaderEntries, profileDir) {
   for (const entry of loaderEntries ?? []) {
     const cfg = entry.options && entry.options.config
@@ -98,7 +74,6 @@ export function findUserPatchPath(loaderEntries, profileDir) {
   return join(profileDir, 'cordis.patch.yml')
 }
 
-/** 用户补丁层当前对行的说法。 */
 export function readUserPatchState(patchPath) {
   const disables = []
   const forced = []
@@ -132,7 +107,6 @@ export function readUserPatchState(patchPath) {
   return { disables, forced, inserts }
 }
 
-/** loader entry id 前缀（loader 的 id 形如 `include:X`）。 */
 function includePrefix(loaderEntries) {
   for (const entry of loaderEntries ?? []) {
     if (entry.options && entry.options.name === 'cordis:include' && typeof entry.options.id === 'string') {
@@ -142,10 +116,6 @@ function includePrefix(loaderEntries) {
   return ''
 }
 
-/**
- * 一个已安装包在用户补丁层拥有的行 id：其 bundle patch 的 insert id，
- * 加上 loader 中当前承载其名字的条目 id。纯客户端包没有 bundle 行，返回空。
- */
 export function rowIdsForPackage(loaderEntries, profileDirectory, packageName) {
   const ids = new Set()
   const packageDir = join(profileDirectory, 'node_modules', packageName)
@@ -190,7 +160,6 @@ function rowBlock(rowId, disabled) {
   return `- id: ${rowId}\n  disabled: ${disabled ? 'true' : 'false'}\n`
 }
 
-/** 把空列表占位符复原（删除最后一行后，纯注释文件会 brick 下次 boot）。 */
 function withPlaceholderRestored(text) {
   if (text.replace(/^[ \t]*#.*$/gmu, '').trim() !== '') return text
   const uncommented = text.replace(/^[ \t]*#[ \t]*\[[ \t]*\][ \t]*(?:\r?\n|$)/mu, '[]\n')
@@ -198,10 +167,6 @@ function withPlaceholderRestored(text) {
   return text === '' || text.endsWith('\n') ? `${text}[]\n` : `${text}\n[]\n`
 }
 
-/**
- * 追加一条顶层补丁条目。文件不是合法条目数组时拒绝，绝不把坏文件改得更坏。
- * 返回 Result<null>。
- */
 function appendPatchEntry(patchPath, block) {
   let text = ''
   try {
@@ -246,7 +211,6 @@ function appendPatchEntry(patchPath, block) {
 
 const ROW_ID_RE = /^[A-Za-z0-9_.-]+$/u
 
-/** 禁用一行：追加 `- id: X` + `disabled: true`（幂等）。 */
 export function disableRow(patchPath, rowId) {
   return queuedWrite(async () => {
     if (!ROW_ID_RE.test(rowId)) {
@@ -259,7 +223,6 @@ export function disableRow(patchPath, rowId) {
   })
 }
 
-/** 启用一行：移除 `disabled: true` 块；低层压制时追加 `disabled: false`。 */
 export function enableRow(patchPath, rowId) {
   return queuedWrite(async () => {
     if (!ROW_ID_RE.test(rowId)) {
@@ -279,7 +242,6 @@ export function enableRow(patchPath, rowId) {
   })
 }
 
-/** 卸载清理：移除某行所有 disable/force 块。 */
 export function removeRowBlocks(patchPath, rowIds) {
   let text = ''
   try {

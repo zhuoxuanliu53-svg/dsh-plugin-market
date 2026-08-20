@@ -1,12 +1,3 @@
-/**
- * state — 市场自身持久化状态（Component 的存储层）。
- *
- * 存到 <profile>/.dsh-plugin-market/state.json：
- *   - follows：关注名单（fullName 数组）
- *   - installed：安装记录 { installedAt, autoUpdate, lastAutoUpdateAt }
- *   - token：可选 GitHub PAT（只存 profile 本地，绝不进导出 manifest）
- */
-
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { normalizeState } from './contracts.js'
@@ -19,7 +10,6 @@ function statePath(profile, explicitDir) {
   return join(profileDir(profile, explicitDir), STATE_DIR, STATE_FILE)
 }
 
-/** 读取并归一化状态；文件缺失/损坏时返回空状态。 */
 export function readState(profile, explicitDir) {
   try {
     const parsed = JSON.parse(readFileSync(statePath(profile, explicitDir), 'utf8'))
@@ -32,7 +22,6 @@ export function readState(profile, explicitDir) {
   }
 }
 
-/** 写入状态（follows/installed/token）。 */
 export function writeState(profile, explicitDir, state) {
   const dir = join(profileDir(profile, explicitDir), STATE_DIR)
   try {
@@ -43,7 +32,6 @@ export function writeState(profile, explicitDir, state) {
   writeFileSync(statePath(profile, explicitDir), JSON.stringify(state, null, 2))
 }
 
-/** 仅更新 token，保留其余状态。 */
 export function writeToken(profile, explicitDir, token) {
   const state = readState(profile, explicitDir)
   state.token = token
