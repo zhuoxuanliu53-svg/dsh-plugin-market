@@ -17,6 +17,8 @@ export async function fetchAllSources(opts = {}) {
   if (!curatedRes.ok) warnings.push(`curated 源失败：${curatedRes.error.message}`)
   if (!githubRes.ok) {
     warnings.push(`GitHub topic 源失败：${githubRes.error.message}`)
+  } else if (githubRes.value.rateLimited) {
+    warnings.push('GitHub topic 源被限流，已使用上次缓存（可在 Token 设置 PAT 提限）')
   } else if (Array.isArray(githubRes.value.failures) && githubRes.value.failures.length > 0) {
     const n = githubRes.value.failures.length
     const sample = githubRes.value.failures.slice(0, 5).join(', ')

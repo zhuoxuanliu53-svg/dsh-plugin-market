@@ -16,6 +16,11 @@ function emptyBuckets() {
   return { bundle: [], skill: [], preset: [], other: [] }
 }
 
+// 识别大面积失败（限流/网络）时是否应保留上次缓存：失败率 ≥ 50% 且确有旧缓存。
+export function keepLastCache(failureCount, total, hasCache) {
+  return hasCache && failureCount / Math.max(1, total) >= 0.5
+}
+
 function restore(cacheDir) {
   if (cacheDir === undefined || cacheDir === '' || cache.buckets !== null) return
   const cached = readJsonFile(join(cacheDir, 'topic.json'))
@@ -77,6 +82,11 @@ export async function fetchGithubTopic(token = '', timeoutMs = 15000, cacheDir =
     if (!entry) continue
     const target = buckets[entry.shape] ? entry.shape : SHAPE.OTHER
     buckets[target].push(entry)
+  }
+
+  // 识别大面积失败（限流/网络）时，保留上次确认有效的缓存，避免 topic 列表被清空。
+  if (keepLastCache(failures.length, all.length, cache.buckets !== null)) {
+    return { ok: true, value: { ...cache.buckets, rateLimited: true, failures } }
   }
 
   cache = { at: Date.now(), buckets }
