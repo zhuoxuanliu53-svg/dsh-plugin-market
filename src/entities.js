@@ -4,28 +4,51 @@ const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
 function validSubpath(subpath) {
   if (!/^[A-Za-z0-9_./-]+$/.test(subpath)) return false
-  return !subpath.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')
+  return subpath.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..')
 }
 
-// 从 curated 的 url 解析 repo + 子目录：https://github.com/<owner>/<repo>[/tree/<branch>/<subpath>]。
-// monorepo 子目录插件用 /tree/ 后缀链接（如 .../tree/master/plugins/dsh-ai-novel-writer），
-// url 才是子目录完整路径的权威来源，name 里的 `#` 后缀只是短标识，不可靠。
+// 从 curated 的 url 解析 repo + 子目录。用 URL 标准解析（而非抓取字符串）：
+// pathname 形如 /owner/repo 或 /owner/repo/tree/<branch>/<subpath>。monorepo 子目录插件
+// 用 /tree/ 后缀链接，url 才是子目录完整路径的权威来源；name 里的 `#` 只是短标识，不可靠。
 export function parseSourceUrl(url) {
-  const m = /^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\/tree\/[^/]+\/(.+?))?\/?$/.exec(typeof url === 'string' ? url : '')
-  if (m === null || !REPO_RE.test(m[1])) return null
-  const subpath = m[2] ?? null
-  if (subpath !== null && !validSubpath(subpath)) return null
-  return { repo: m[1], subpath }
+  let parsed
+  try {
+    parsed = new URL(typeof url === 'string' ? url : '')
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') return null
+  const segments = parsed.pathname.split('/').filter((s) => s !== '')
+  if (segments.length < 2) return null
+  const repo = `${segments[0]}/${segments[1]}`
+  if (!REPO_RE.test(repo)) return null
+  if (segments.length === 2) return { repo, subpath: null }
+  // /tree/<branch>/<subpath>：segments[2] 必须是 tree，之后第一个是 branch，其余是子目录。
+  if (segments[2] === 'tree' && segments.length >= 4) {
+    const subpath = segments.slice(4).join('/')
+    if (subpath === '') return { repo, subpath: null }
+    return validSubpath(subpath) ? { repo, subpath } : null
+  }
+  return null
 }
 
 // 条目显示名：name 是身份标识，对 monorepo 条目是复合形 `repo#path/to/plugin`；
-// 卡片标题应只显示插件自己的名字（# 后最后一段），仓库名交给 byline。
+// 卡片标题只显示插件自己的名字（# 后最后一段），仓库名交给 byline。
 export function pluginName(name) {
   const hash = name.indexOf('#')
   if (hash === -1) return name
-  const sub = name.slice(hash + 1)
-  const leaf = sub.slice(sub.lastIndexOf('/') + 1)
-  return leaf === '' ? name.slice(0, hash) : leaf
+  const segments = name.slice(hash + 1).split('/').filter((s) => s !== '')
+  return segments.length > 0 ? segments[segments.length - 1] : name.slice(0, hash)
+}
+
+// 从 curated 条目推导安装源位置（repo + 可选子目录）。
+function repoLocation(name, owner, url) {
+  const source = parseSourceUrl(url)
+  if (source !== null) return source
+  // 兜底：url 缺失或非 GitHub 时，用 owner + name（name 可能带 `#`，取 `#` 前部分）。
+  if (owner === '' || name === '') return null
+  const hash = name.indexOf('#')
+  return { repo: `${owner}/${hash >= 0 ? name.slice(0, hash) : name}`, subpath: null }
 }
 
 export function fromCurated(entry) {
@@ -34,17 +57,11 @@ export function fromCurated(entry) {
   const owner = typeof entry.owner === 'string' ? entry.owner : ''
   const url = typeof entry.url === 'string' ? entry.url : ''
 
-  const source = parseSourceUrl(url)
-  let repo = source !== null ? source.repo : ''
-  if (repo === '' && owner !== '' && rawName !== '') {
-    // 兜底：url 缺失或非 GitHub 时退到 owner/name（name 可能带 `#`，取 `#` 前部分）。
-    const hash = rawName.indexOf('#')
-    repo = `${owner}/${hash >= 0 ? rawName.slice(0, hash) : rawName}`
-  }
-  if (repo === '') return null
+  const loc = repoLocation(rawName, owner, url)
+  if (loc === null) return null
 
-  const fullName = repo.toLowerCase()
-  const subpath = source !== null && source.subpath !== null ? source.subpath : ''
+  const fullName = loc.repo.toLowerCase()
+  const subpath = loc.subpath ?? ''
   // 条目唯一标识：普通条目 = owner/repo；monorepo 子目录 = owner/repo#path:/subpath（pnpm 语法）。
   const id = subpath !== '' ? `${fullName}#path:/${subpath.toLowerCase()}` : fullName
 

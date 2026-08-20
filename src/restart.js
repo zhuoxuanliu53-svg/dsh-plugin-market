@@ -99,8 +99,8 @@ export function scheduleRestart(port = null) {
   const launch = dshArgv()
   const spawned = respawnInvocation(launch)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const logOut = join(tmpdir(), `dsh-market-restart-${stamp}.out.log`)
-  const logErr = join(tmpdir(), `dsh-market-restart-${stamp}.err.log`)
+  const logOut = join(tmpdir(), `dsh-plugin-market-restart-${stamp}.out.log`)
+  const logErr = join(tmpdir(), `dsh-plugin-market-restart-${stamp}.err.log`)
   const helper = spawn(nodeExecutable(), ['-e', restartHelperSource(spawned, launch, { out: logOut, err: logErr }, port)], {
     detached: true,
     stdio: 'ignore',
