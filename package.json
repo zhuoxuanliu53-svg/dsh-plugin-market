@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-market",
-  "version": "3.0.0",
-  "description": "可视化插件市场：双源(curated + GitHub topic)浏览/搜索/排序/关注/一键安装/更新/卸载/自动更新/热禁用/组合包导入导出",
+  "version": "4.0.0",
+  "description": "DeepSeek Harness 插件市场：分形态(bundle/skill/preset)浏览/搜索/一键安装/更新/卸载/自动更新/热禁用/一键重启/纯文本名单导入导出",
   "type": "module",
   "main": "src/index.js",
   "license": "MIT",

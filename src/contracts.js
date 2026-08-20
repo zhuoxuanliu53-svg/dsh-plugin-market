@@ -46,9 +46,11 @@ export function normalizeInstallState(v) {
       autoUpdate: !!v.autoUpdate,
       lastAutoUpdateAt: typeof v.lastAutoUpdateAt === 'number' ? v.lastAutoUpdateAt : 0,
       packageName: typeof v.packageName === 'string' ? v.packageName : '',
+      shape: typeof v.shape === 'string' ? v.shape : 'bundle',
+      spec: typeof v.spec === 'string' ? v.spec : '',
     }
   }
-  return { installedAt: 0, autoUpdate: false, lastAutoUpdateAt: 0, packageName: '' }
+  return { installedAt: 0, autoUpdate: false, lastAutoUpdateAt: 0, packageName: '', shape: 'bundle', spec: '' }
 }
 
 export function normalizeFollowState(v) {

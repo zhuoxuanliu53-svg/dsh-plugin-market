@@ -110,6 +110,11 @@ export function runPlugin(profile, pluginArgs, timeoutMs = INSTALL_TIMEOUT_MS) {
 // ---- 目标名与 spec ----
 
 export function installSpecFor(entry) {
+  // registry 的 install 字段是权威 spec（覆盖 npm/scoped/github/github#path 四种形态）。
+  if (entry && typeof entry.install === 'string' && entry.install !== '') {
+    const m = /\badd\s+(\S+)/.exec(entry.install.trim())
+    if (m && m[1] !== '') return m[1]
+  }
   if (entry && typeof entry.npm === 'string' && entry.npm !== '') return entry.npm
   return `github:${entry.fullName}`
 }

@@ -1,6 +1,6 @@
 import { fetchCurated } from './curated.js'
 import { fetchGithubTopic } from './github-topic.js'
-import { mergeSources } from '../entities.js'
+import { mergeShapes } from '../entities.js'
 
 export async function fetchAllSources(opts = {}) {
   const token = typeof opts.token === 'string' ? opts.token : ''
@@ -11,7 +11,7 @@ export async function fetchAllSources(opts = {}) {
   const githubRes = await fetchGithubTopic(token, timeoutMs)
 
   const curated = curatedRes.ok ? curatedRes.value.plugins : []
-  const community = githubRes.ok ? githubRes.value.plugins : []
+  const topicBuckets = githubRes.ok ? githubRes.value : null
 
   if (!curatedRes.ok) warnings.push(`curated 源失败：${curatedRes.error.message}`)
   if (!githubRes.ok) warnings.push(`GitHub topic 源失败：${githubRes.error.message}`)
@@ -28,13 +28,19 @@ export async function fetchAllSources(opts = {}) {
     }
   }
 
-  const merged = mergeSources(curated, community)
+  const shapes = mergeShapes(curated, topicBuckets)
+  // 主列表 = bundle + skill + preset（「其他」不主动展示）。
+  const merged = [...shapes.bundles, ...shapes.skills, ...shapes.presets]
+
   return {
     ok: true,
     value: {
       merged,
+      bundles: shapes.bundles,
+      skills: shapes.skills,
+      presets: shapes.presets,
+      others: shapes.others,
       curated,
-      community,
       fetchedAt: Date.now(),
       warnings,
       updated: curatedRes.ok ? curatedRes.value.updated : '',

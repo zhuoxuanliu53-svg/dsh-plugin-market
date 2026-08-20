@@ -1,66 +1,57 @@
-import { ok, err, E } from './result.js'
-import { isFullName } from './contracts.js'
+import { err, ok, E } from './result.js'
 
-const FORMAT = 'dsh-plugin-market'
+// 纯文本清单 v3：一行一个条目，方便评论区直接粘贴。
+//   bundle:  直接写 spec（npm 名 / github:owner/repo / @scope/name / github:owner/repo#path:...）
+//   skill:   skill:github:owner/repo
+//   preset:  preset:github:owner/repo
+//   # 开头的行与空行忽略。
 
-export function buildManifest(state, profile) {
+function fullNameFromSpec(spec) {
+  const m = /^github:([^#]+)/.exec(spec)
+  return m ? m[1].toLowerCase() : ''
+}
+
+export function buildManifest(state) {
   const installed = state && state.installed && typeof state.installed === 'object' ? state.installed : {}
-  const follows = state && Array.isArray(state.follows) ? state.follows : []
-  const followSet = new Set(follows)
-
-  const plugins = Object.keys(installed)
-    .filter((fullName) => isFullName(fullName))
-    .map((fullName) => ({
-      fullName,
-      followed: followSet.has(fullName),
-      autoUpdate: !!(installed[fullName] && installed[fullName].autoUpdate),
-    }))
-
-  const commands = plugins.map((p) => `dsh plugin --profile ${profile} add github:${p.fullName}`)
-
-  return {
-    format: FORMAT,
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    profile,
-    plugins,
-    commands,
+  const lines = []
+  let count = 0
+  for (const [fullName, rec] of Object.entries(installed)) {
+    if (!rec || typeof rec !== 'object') continue
+    const shape = rec.shape === 'skill' ? 'skill' : (rec.shape === 'preset' ? 'preset' : 'bundle')
+    if (shape === 'bundle') {
+      lines.push((typeof rec.spec === 'string' && rec.spec !== '') ? rec.spec : `github:${fullName}`)
+    } else {
+      lines.push(`${shape}:github:${fullName}`)
+    }
+    count++
   }
+  lines.sort()
+  return [`# dsh-plugin-market v3 · ${count} items`, ...lines].join('\n') + '\n'
 }
 
 export function parseManifest(text) {
   if (typeof text !== 'string' || text.trim() === '') {
     return err(E.INVALID_ARG, '清单为空')
   }
-  let parsed
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return err(E.INVALID_ARG, '清单不是有效 JSON')
+  const items = []
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#')) continue
+    const skillM = /^skill:(.+)$/.exec(line)
+    const presetM = /^preset:(.+)$/.exec(line)
+    if (skillM || presetM) {
+      const shape = skillM ? 'skill' : 'preset'
+      const target = (skillM || presetM)[1].trim()
+      const fullName = fullNameFromSpec(target) || target.replace(/^github:/, '').toLowerCase()
+      if (fullName === '') continue
+      items.push({ shape, spec: `github:${fullName}`, fullName })
+      continue
+    }
+    const spec = line
+    items.push({ shape: 'bundle', spec, fullName: fullNameFromSpec(spec) })
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return err(E.INVALID_ARG, '清单结构无效')
-  }
-  if (parsed.format !== undefined && parsed.format !== FORMAT) {
-    return err(E.INVALID_ARG, `不支持的清单格式：${parsed.format}`)
-  }
-
-  const plugins = Array.isArray(parsed.plugins)
-    ? parsed.plugins
-      .filter((p) => p && typeof p.fullName === 'string' && isFullName(p.fullName))
-      .map((p) => ({
-        fullName: p.fullName.toLowerCase(),
-        followed: !!p.followed,
-        autoUpdate: !!p.autoUpdate,
-      }))
-    : []
-
-  const commands = Array.isArray(parsed.commands)
-    ? parsed.commands.filter((c) => typeof c === 'string')
-    : []
-
-  if (plugins.length === 0 && commands.length === 0) {
+  if (items.length === 0) {
     return err(E.INVALID_ARG, '清单中没有任何插件')
   }
-  return ok({ plugins, commands })
+  return ok({ items })
 }

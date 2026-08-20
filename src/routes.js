@@ -2,6 +2,9 @@ import { ok, err, E } from './result.js'
 import { isFullName } from './contracts.js'
 import { fetchAllSources } from './sources/index.js'
 import { installOne, removeOne, updateOne, repoNameOf, installSpecFor } from './installer.js'
+import { installSkill } from './install-skill.js'
+import { installPreset } from './install-preset.js'
+import { restartAllowed, trustedRestartRequest, servingPort, scheduleRestart } from './restart.js'
 import { findUserPatchPath, readUserPatchState, rowIdsForPackage, disableRow, enableRow, removeRowBlocks, isProtectedModule } from './hot.js'
 import { buildManifest, parseManifest } from './manifest.js'
 import { readState, writeState, writeToken } from './state.js'
@@ -77,15 +80,23 @@ export function createMarketServer(host, config) {
     writeState(profile, undefined, state)
   }
 
-  // 由 fullName 解析真实安装包名（优先安装时记录的 packageName）。
   function packageNameFor(fullName) {
     const rec = state.installed[fullName]
     if (rec && typeof rec.packageName === 'string' && rec.packageName !== '') return rec.packageName
     return repoNameOf(fullName)
   }
 
-  // 把 installer Result 映射成客户端友好的形状。
-  function clientResult(result, verb, spec) {
+  function installLabel(entry) {
+    return entry.shape === 'bundle' ? installSpecFor(entry) : `github:${entry.fullName}`
+  }
+
+  async function installEntry(profile, entry) {
+    if (entry.shape === 'skill') return installSkill(profile, entry)
+    if (entry.shape === 'preset') return installPreset(profile, entry)
+    return installOne(profile, entry)
+  }
+
+  function clientResult(result, verb, spec, needsRestart) {
     if (result.ok) {
       return {
         status: 'ok',
@@ -93,6 +104,7 @@ export function createMarketServer(host, config) {
         message: '命令执行成功',
         packageName: result.value.packageName,
         verify: result.value.verify,
+        needsRestart: !!needsRestart,
       }
     }
     return {
@@ -103,7 +115,6 @@ export function createMarketServer(host, config) {
     }
   }
 
-  // 统一把 Result 写成响应。
   function respond(response, result) {
     if (result.ok) sendJson(response, 200, result.value)
     else sendJson(response, 400, { error: result.error })
@@ -124,12 +135,21 @@ export function createMarketServer(host, config) {
     }
     sendJson(res, 200, {
       merged: payload.merged,
+      bundles: payload.bundles,
+      skills: payload.skills,
+      presets: payload.presets,
+      otherCount: (payload.others || []).length,
       curated: payload.curated,
-      community: payload.community,
       fetchedAt: payload.fetchedAt,
       updated: payload.updated,
       warnings: payload.warnings,
     })
+  })
+
+  // 「其他」懒展示：默认不随 registry 返回，点开才拉。
+  register('/pm/others', async (_req, res) => {
+    const payload = await getRegistry()
+    sendJson(res, 200, { others: payload ? payload.others : [] })
   })
 
   register('/pm/state', (_req, res) => {
@@ -140,8 +160,7 @@ export function createMarketServer(host, config) {
   })
 
   register('/pm/manifest/export', (_req, res) => {
-    const manifest = buildManifest(state, profile)
-    sendJson(res, 200, { text: JSON.stringify(manifest, null, 2), manifest })
+    sendJson(res, 200, { text: buildManifest(state) })
   })
 
   // ---- 变更路由（POST，同源校验） ----
@@ -177,21 +196,27 @@ export function createMarketServer(host, config) {
     const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
     if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
     const registry = await getRegistry()
-    const entry = registry ? registry.merged.find((e) => e.fullName === fullName) : null
+    const entry = registry && Array.isArray(registry.merged)
+      ? registry.merged.find((e) => e.fullName === fullName)
+      : null
     if (entry === null) {
       return respond(res, err(E.NOT_IN_REGISTRY, '插件不在市场白名单内，拒绝安装'))
     }
-    const result = await installOne(profile, entry)
+    const result = await installEntry(profile, entry)
     if (result.ok) {
       state.installed[fullName] = {
         installedAt: Date.now(),
         autoUpdate: false,
         lastAutoUpdateAt: 0,
         packageName: result.value.packageName,
+        shape: entry.shape,
+        spec: installLabel(entry),
       }
       save()
     }
-    respond(res, ok(clientResult(result, 'add', installSpecFor(entry))))
+    // 只有 bundle 全新安装需要重启挂载；skill/preset 落盘即生效（watch / 重读目录）。
+    const needsRestart = result.ok && entry.shape === 'bundle'
+    respond(res, ok(clientResult(result, 'add', installLabel(entry), needsRestart)))
   }))
 
   register('/pm/update', (req, res) => guardPost(req, res, async (body) => {
@@ -209,6 +234,8 @@ export function createMarketServer(host, config) {
   register('/pm/update-all', (req, res) => guardPost(req, res, async () => {
     const results = {}
     for (const fullName of Object.keys(state.installed)) {
+      const rec = state.installed[fullName]
+      if (!rec || rec.shape !== 'bundle') continue
       const pkg = packageNameFor(fullName)
       const result = await updateOne(profile, pkg)
       results[fullName] = clientResult(result, 'update', pkg)
@@ -221,10 +248,10 @@ export function createMarketServer(host, config) {
   register('/pm/remove', (req, res) => guardPost(req, res, async (body) => {
     const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
     if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const rec = state.installed[fullName]
     const pkg = packageNameFor(fullName)
     const result = await removeOne(profile, pkg)
     if (result.ok) {
-      // 清理补丁层里该包的行。
       const rows = rowIdsForPackage(host.loader.entries(), profileDirectory, pkg)
       removeRowBlocks(patchPath, rows)
       delete state.installed[fullName]
@@ -239,9 +266,9 @@ export function createMarketServer(host, config) {
     const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
     if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
     const rec = state.installed[fullName]
-    const enabled = body.enabled !== false // 默认开启
+    const enabled = body.enabled !== false
     if (!rec) {
-      state.installed[fullName] = { installedAt: Date.now(), autoUpdate: enabled, lastAutoUpdateAt: 0, packageName: repoNameOf(fullName) }
+      state.installed[fullName] = { installedAt: Date.now(), autoUpdate: enabled, lastAutoUpdateAt: 0, packageName: repoNameOf(fullName), shape: 'bundle', spec: `github:${fullName}` }
     } else {
       rec.autoUpdate = enabled
     }
@@ -286,11 +313,7 @@ export function createMarketServer(host, config) {
     if (!result.ok) {
       return respond(res, err(E.INVALID_ARG, result.error.message))
     }
-    respond(res, ok({
-      plugins: result.value.plugins,
-      commands: result.value.commands,
-      errors: [],
-    }))
+    respond(res, ok({ items: result.value.items }))
   }))
 
   register('/pm/manifest/apply', (req, res) => guardPost(req, res, async (body) => {
@@ -299,42 +322,71 @@ export function createMarketServer(host, config) {
       return respond(res, err(E.INVALID_ARG, result.error.message))
     }
     const registry = await getRegistry()
-    const merged = registry ? registry.merged : []
+    const merged = registry && Array.isArray(registry.merged) ? registry.merged : []
     const results = {}
     const errors = []
-    for (const p of result.value.plugins) {
-      const entry = merged.find((e) => e.fullName === p.fullName)
+    for (const item of result.value.items) {
+      const entry = findEntryForItem(merged, item)
+      const label = item.spec || item.fullName
       if (entry === null) {
-        results[p.fullName] = { status: 'failed', message: '不在市场白名单内，跳过', code: 'NOT_IN_REGISTRY' }
-        errors.push(`${p.fullName}: 不在市场白名单内`)
+        results[label] = { status: 'failed', message: '不在市场白名单内，跳过', code: 'NOT_IN_REGISTRY' }
+        errors.push(`${label}: 不在市场白名单内`)
         continue
       }
-      const r = await installOne(profile, entry)
-      results[p.fullName] = clientResult(r, 'add', installSpecFor(entry))
+      const r = await installEntry(profile, entry)
+      results[label] = clientResult(r, 'add', installLabel(entry), entry.shape === 'bundle')
       if (r.ok) {
-        state.installed[p.fullName] = {
+        state.installed[entry.fullName] = {
           installedAt: Date.now(),
-          autoUpdate: !!p.autoUpdate,
+          autoUpdate: false,
           lastAutoUpdateAt: 0,
           packageName: r.value.packageName,
+          shape: entry.shape,
+          spec: installLabel(entry),
         }
-        if (p.followed && state.follows.indexOf(p.fullName) < 0) state.follows.push(p.fullName)
       } else {
-        errors.push(`${p.fullName}: ${r.error.message}`)
+        errors.push(`${label}: ${r.error.message}`)
       }
     }
     save()
     respond(res, ok({ results, errors }))
   }))
 
-  // ---- 启动时回放禁用状态（补丁层已持久化，无需额外处理） ----
-  // 补丁层在每次 boot 由 loader 重新应用，无需市场额外挂载。
+  register('/pm/self-update', (req, res) => guardPost(req, res, async () => {
+    const spec = (config && typeof config.selfUpdateSpec === 'string' && config.selfUpdateSpec !== '')
+      ? config.selfUpdateSpec
+      : 'github:zhuoxuanliu53-svg/dsh-plugin-market'
+    const result = await updateOne(profile, spec)
+    // bundle 更新需要重启挂载，返回 needsRestart。
+    respond(res, ok(clientResult(result, 'update', spec, result.ok)))
+  }))
+
+  register('/pm/restart', (req, res) => guardPost(req, res, () => {
+    if (!restartAllowed(config)) {
+      return sendJson(res, 403, { error: { code: 'FORBIDDEN', message: '重启已禁用' } })
+    }
+    if (!trustedRestartRequest(req)) {
+      return sendJson(res, 403, { error: { code: 'FORBIDDEN', message: '仅接受本机同源请求' } })
+    }
+    const r = scheduleRestart(servingPort(req))
+    sendJson(res, 200, { status: 'ok', message: '正在重启，稍后自动恢复…', pid: r.pid, logOut: r.logOut })
+  }))
 
   return () => {
     for (const dispose of disposers) {
       try { dispose() } catch { /* 忽略 */ }
     }
   }
+}
+
+function findEntryForItem(merged, item) {
+  if (item.shape === 'skill' || item.shape === 'preset') {
+    return merged.find((e) => e.shape === item.shape && e.fullName === item.fullName) || null
+  }
+  if (item.fullName !== '') {
+    return merged.find((e) => e.shape === 'bundle' && e.fullName === item.fullName) || null
+  }
+  return merged.find((e) => e.shape === 'bundle' && (e.npm === item.spec || e.name === item.spec)) || null
 }
 
 export { readInstalled, readProfileBundles, profileDir }

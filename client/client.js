@@ -92,9 +92,17 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
   ];
 
   function MarketApp() {
-    var stateRef = useState({ phase: "loading", merged: [], warnings: [], fetchedAt: 0, error: null });
+    var stateRef = useState({ phase: "loading", merged: [], bundles: [], skills: [], presets: [], otherCount: 0, warnings: [], fetchedAt: 0, error: null });
     var state = stateRef[0];
     var setState = stateRef[1];
+
+    var tabRef = useState("bundle");
+    var tab = tabRef[0];
+    var setTab = tabRef[1];
+
+    var othersRef = useState([]);
+    var others = othersRef[0];
+    var setOthers = othersRef[1];
 
     var followsRef = useState([]);
     var follows = followsRef[0];
@@ -157,16 +165,45 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     var setToken = tokenRef[1];
 
     function refresh(force) {
-      setState(function (s) { return { phase: s.merged && s.merged.length ? s.phase : "loading", merged: s.merged, warnings: s.warnings, fetchedAt: s.fetchedAt, error: null }; });
+      setState(function (s) { return { phase: (s.merged && s.merged.length) ? s.phase : "loading", merged: s.merged, bundles: s.bundles, skills: s.skills, presets: s.presets, otherCount: s.otherCount, warnings: s.warnings, fetchedAt: s.fetchedAt, error: null }; });
       apiGet("/pm/registry").then(function (r) {
-        setState({ phase: "ready", merged: r.merged || [], warnings: r.warnings || [], fetchedAt: r.fetchedAt || 0, error: null });
+        setState({ phase: "ready", merged: r.merged || [], bundles: r.bundles || [], skills: r.skills || [], presets: r.presets || [], otherCount: r.otherCount || 0, warnings: r.warnings || [], fetchedAt: r.fetchedAt || 0, error: null });
       }).catch(function (e) {
-        setState({ phase: "error", merged: [], warnings: [], fetchedAt: 0, error: e.message });
+        setState({ phase: "error", merged: [], bundles: [], skills: [], presets: [], otherCount: 0, warnings: [], fetchedAt: 0, error: e.message });
       });
       apiGet("/pm/state").then(function (r) {
         setFollows(r.follows || []);
         setInstalled(r.installed || {});
       }).catch(function () {});
+    }
+
+    function loadOthers() {
+      if (others.length > 0) return;
+      apiGet("/pm/others").then(function (r) {
+        setOthers(r.others || []);
+      }).catch(function () {});
+    }
+
+    function doRestart() {
+      setOps(function (m) { var n = Object.assign({}, m); n["__restart__"] = { running: "restart", result: null }; return n; });
+      apiPost("/pm/restart").then(function (r) {
+        setOps(function (m) { var n = Object.assign({}, m); n["__restart__"] = { running: null, result: { status: "ok", message: r.message || "正在重启…" } }; return n; });
+      }).catch(function (e) {
+        setOps(function (m) { var n = Object.assign({}, m); n["__restart__"] = { running: null, result: { status: "failed", message: String(e && e.message || e) } }; return n; });
+      });
+    }
+
+    function selfUpdate() {
+      setOps(function (m) { var n = Object.assign({}, m); n["__self__"] = { running: "update", result: null }; return n; });
+      apiPost("/pm/self-update").then(function (r) {
+        setOps(function (m) {
+          var n = Object.assign({}, m);
+          n["__self__"] = { running: null, result: { status: r.status || "ok", message: r.message || "已更新", needsRestart: r.needsRestart } };
+          return n;
+        });
+      }).catch(function (e) {
+        setOps(function (m) { var n = Object.assign({}, m); n["__self__"] = { running: null, result: { status: "failed", message: String(e && e.message || e) } }; return n; });
+      });
     }
 
     useEffect(function () { refresh(false); }, []);
@@ -235,7 +272,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
       apiPost("/pm/manifest/preview", { manifestText: importText }).then(function (r) {
         setImportPreview(r || { ok: false, errors: ["无响应"] });
       }).catch(function (e) {
-        setImportPreview({ plugins: [], commands: [], errors: [String(e && e.message || e)] });
+        setImportPreview({ items: [], errors: [String(e && e.message || e)] });
       }).then(function () { setImportBusy(false); });
     }
 
@@ -263,10 +300,15 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     var followSet = {};
     for (var i = 0; i < follows.length; i++) followSet[follows[i]] = true;
 
+    var baseList = tab === "skill" ? state.skills
+      : tab === "preset" ? state.presets
+      : tab === "other" ? others
+      : state.bundles;
+
     var tagCounts = {};
     var p, t;
-    for (i = 0; i < state.merged.length; i++) {
-      p = state.merged[i];
+    for (i = 0; i < baseList.length; i++) {
+      p = baseList[i];
       if (!p.topics) continue;
       for (var j = 0; j < p.topics.length; j++) {
         t = p.topics[j];
@@ -283,7 +325,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     }
 
     var q = query.trim().toLowerCase();
-    var list = state.merged.filter(function (entry) {
+    var list = baseList.filter(function (entry) {
       if (q) {
         var hay = (entry.fullName + " " + (entry.description || "") + " " + (entry.topics || []).join(" ")).toLowerCase();
         if (hay.indexOf(q) < 0) return false;
@@ -330,6 +372,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
         ),
         createElement("div", { className: "pm-actions" },
           createElement("span", { className: "pm-badge " + (isCurated ? "curated" : "community") }, isCurated ? "已审核" : "社区"),
+          createElement("span", { className: "pm-badge" }, entry.shape === "skill" ? "技能" : entry.shape === "preset" ? "预设" : "插件"),
           rec ? createElement("span", { className: "pm-badge " + (upd ? "update" : "installed") }, upd ? "有更新" : "已安装") : null,
           entry.category ? createElement("span", { className: "pm-stats" }, entry.category) : null,
           entry.language ? createElement("span", { className: "pm-stats" }, entry.language) : null
@@ -350,17 +393,27 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
         running ? createElement("div", { className: "pm-msg pm-warn" }, running === "install" ? "安装中…" : running === "update" ? "更新中…" : "卸载中…") : null,
         opResult && opResult.command ? createElement("div", { className: "pm-cmd" }, "$ " + opResult.command) : null,
         opResult && opResult.message ? createElement("div", { className: "pm-msg " + (opResult.status === "ok" ? "pm-ok" : "pm-err") }, opResult.message) : null,
+        opResult && opResult.needsRestart ? createElement("button", { className: "pm-btn active", onClick: doRestart }, "重启以生效") : null,
         rec && rec.installedAt ? createElement("div", { className: "pm-stats", style: { marginTop: "4px" } }, "安装于 " + new Date(rec.installedAt).toLocaleDateString()) : null
       );
+    }
+
+    function copyExport() {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(exportText).then(function () {
+          setOps(function (m) { var n = Object.assign({}, m); n["__export__"] = { result: { status: "ok", message: "已复制到剪贴板" } }; return n; });
+        }).catch(function () {});
+      }
     }
 
     function renderExportModal() {
       return createElement("div", { className: "pm-modal", onClick: function () { setModal(""); } },
         createElement("div", { className: "pm-modal-box", onClick: function (e) { e.stopPropagation(); } },
-          createElement("div", { className: "pm-modal-title" }, "导出插件名单（组合包）"),
+          createElement("div", { className: "pm-modal-title" }, "导出插件名单（纯文本）"),
           createElement("textarea", { className: "pm-textarea", readOnly: true, value: exportText, style: { minHeight: "200px" } }),
           createElement("div", { className: "pm-modal-actions" },
-            createElement("span", { className: "pm-stats" }, "把 JSON 发给他人，或导入本市场复刻相同配置。"),
+            createElement("button", { className: "pm-btn active", onClick: copyExport }, "复制"),
+            createElement("span", { className: "pm-stats" }, "直接发到评论区，他人粘贴回市场导入即可复刻。"),
             createElement("button", { className: "pm-btn", onClick: function () { setModal(""); } }, "关闭")
           )
         )
@@ -371,14 +424,14 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
       return createElement("div", { className: "pm-modal", onClick: function () { setModal(""); } },
         createElement("div", { className: "pm-modal-box", onClick: function (e) { e.stopPropagation(); } },
           createElement("div", { className: "pm-modal-title" }, "导入插件名单"),
-          createElement("textarea", { className: "pm-textarea", placeholder: "粘贴导出的插件名单 JSON…", value: importText, onChange: function (e) { setImportText(e.target.value); } }),
+          createElement("textarea", { className: "pm-textarea", placeholder: "粘贴纯文本：每行一个（插件 spec / skill:github:owner/repo / preset:github:owner/repo），# 开头为注释", value: importText, onChange: function (e) { setImportText(e.target.value); } }),
           createElement("div", { className: "pm-modal-actions" },
             createElement("button", { className: "pm-btn", disabled: importBusy, onClick: doImportPreview }, "预览"),
-            importPreview && !importPreview.errors && importPreview.plugins ? createElement("button", { className: "pm-btn active", disabled: importBusy, onClick: doImportApply }, "应用导入") : null,
+            importPreview && !importPreview.errors && importPreview.items ? createElement("button", { className: "pm-btn active", disabled: importBusy, onClick: doImportApply }, "应用导入") : null,
             createElement("button", { className: "pm-btn", onClick: function () { setModal(""); } }, "关闭")
           ),
           importPreview && importPreview.errors && importPreview.errors.length ? createElement("div", { className: "pm-err" }, "预览失败：" + importPreview.errors.join("；")) : null,
-          importPreview && importPreview.plugins ? createElement("div", { className: "pm-ok" }, "清单有效：" + importPreview.plugins.length + " 个插件") : null,
+          importPreview && importPreview.items ? createElement("div", { className: "pm-ok" }, "清单有效：" + importPreview.items.length + " 项") : null,
           importResults ? createElement("div", {},
             (importResults.errors || []).length ? createElement("div", { className: "pm-err" }, "导入出错：" + importResults.errors.join("；")) : createElement("div", { className: "pm-ok" }, "导入完成")
           ) : null
@@ -413,14 +466,25 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     return createElement("div", { className: "pm-root" },
       createElement("div", { className: "pm-head" },
         createElement("span", { className: "pm-title" }, "插件市场"),
-        createElement("span", { className: "pm-count" }, "共 " + state.merged.length + " 个插件"),
+        createElement("span", { className: "pm-count" }, (tab === "skill" ? "技能" : tab === "preset" ? "预设" : tab === "other" ? "其他" : "插件") + " " + baseList.length + " 个"),
         createElement("button", { className: "pm-btn", onClick: function () { refresh(true); } }, "刷新"),
         createElement("button", { className: "pm-btn", onClick: updateAll }, "更新全部"),
+        createElement("button", { className: "pm-btn", onClick: selfUpdate }, "更新市场"),
         createElement("button", { className: "pm-btn", onClick: doExport }, "导出名单"),
         createElement("button", { className: "pm-btn", onClick: function () { setImportPreview(null); setImportResults(null); setModal("import"); } }, "导入名单"),
         createElement("button", { className: "pm-btn", onClick: function () { setModal("token"); } }, "Token")
       ),
       (state.warnings || []).length ? createElement("div", { className: "pm-msg pm-warn" }, state.warnings.join("；")) : null,
+      (ops["__self__"] && ops["__self__"].result) ? createElement("div", { className: "pm-actions" },
+        createElement("span", { className: "pm-msg " + (ops["__self__"].result.status === "ok" ? "pm-ok" : "pm-err") }, "市场：" + ops["__self__"].result.message),
+        ops["__self__"].result.needsRestart ? createElement("button", { className: "pm-btn active", onClick: doRestart }, "重启以生效") : null
+      ) : null,
+      createElement("div", { className: "pm-toolbar" },
+        createElement("button", { className: "pm-btn" + (tab === "bundle" ? " active" : ""), onClick: function () { setTab("bundle"); } }, "插件（" + state.bundles.length + "）"),
+        createElement("button", { className: "pm-btn" + (tab === "skill" ? " active" : ""), onClick: function () { setTab("skill"); } }, "技能（" + state.skills.length + "）"),
+        createElement("button", { className: "pm-btn" + (tab === "preset" ? " active" : ""), onClick: function () { setTab("preset"); } }, "预设（" + state.presets.length + "）"),
+        createElement("button", { className: "pm-btn" + (tab === "other" ? " active" : ""), onClick: function () { setTab("other"); loadOthers(); } }, "其他（" + state.otherCount + "）")
+      ),
       createElement("div", { className: "pm-toolbar" },
         createElement("input", { className: "pm-input", placeholder: "搜索名称或标签…", value: query, onChange: function (e) { setQuery(e.target.value); } }),
         createElement("select", { className: "pm-select", value: sortKey, onChange: function (e) { setSortKey(e.target.value); } },
