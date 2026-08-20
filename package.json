@@ -1,10 +1,51 @@
 {
   "name": "dsh-plugin-market",
-  "version": "2.0.0",
-  "private": true,
-  "description": "插件市场：从 GitHub Topic dsh-plugin 浏览/搜索/排序/关注/安装/更新/卸载 DSH 插件，支持名单导出导入（组合包）。",
+  "version": "3.0.0",
+  "description": "可视化插件市场：双源(curated + GitHub topic)浏览/搜索/排序/关注/一键安装/更新/卸载/自动更新/热禁用/组合包导入导出",
   "type": "module",
+  "main": "src/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsh-plugin-market/dsh-plugin-market.git"
+  },
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "marketplace",
+    "market",
+    "plugin-manager"
+  ],
+  "dependencies": {
+    "undici": "^7.29.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./client": {
+      "default": "./client/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
   "files": [
-    "src"
+    "src",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "DEVELOPMENT.md"
   ]
 }
