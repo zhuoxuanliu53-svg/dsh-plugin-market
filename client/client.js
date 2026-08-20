@@ -10,6 +10,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
   var useState = React.useState;
   var useEffect = React.useEffect;
   var useRef = React.useRef;
+  var useMemo = React.useMemo;
 
   var CSS = "\
 .pm-root{font-family:inherit;color:var(--dsw-alias-label-primary);box-sizing:border-box}\n\
@@ -124,6 +125,18 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     var queryRef = useState("");
     var query = queryRef[0];
     var setQuery = queryRef[1];
+
+    // 搜索去抖动：输入框即时更新 queryDraft，150ms 静默后才落到 query（触发筛选）。
+    var queryDraftRef = useState("");
+    var queryDraft = queryDraftRef[0];
+    var setQueryDraft = queryDraftRef[1];
+
+    var queryTimerRef = useRef(null);
+    useEffect(function () {
+      if (queryTimerRef.current) clearTimeout(queryTimerRef.current);
+      queryTimerRef.current = setTimeout(function () { setQuery(queryDraft); }, 150);
+      return function () { if (queryTimerRef.current) clearTimeout(queryTimerRef.current); };
+    }, [queryDraft]);
 
     var sortRef = useState("stars-desc");
     var sortKey = sortRef[0];
@@ -306,26 +319,34 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
 
     // ---- 派生数据 ----
 
-    var followSet = {};
-    for (var i = 0; i < follows.length; i++) followSet[follows[i]] = true;
+    var followSet = useMemo(function () {
+      var set = {};
+      for (var i = 0; i < follows.length; i++) set[follows[i]] = true;
+      return set;
+    }, [follows]);
 
     var baseList = tab === "skill" ? state.skills
       : tab === "preset" ? state.presets
       : tab === "other" ? others
       : state.bundles;
 
-    var tagCounts = {};
-    var p, t;
-    for (i = 0; i < baseList.length; i++) {
-      p = baseList[i];
-      if (!p.topics) continue;
-      for (var j = 0; j < p.topics.length; j++) {
-        t = p.topics[j];
-        if (t === "dsh-plugin") continue;
-        tagCounts[t] = (tagCounts[t] || 0) + 1;
+    var tagCounts = useMemo(function () {
+      var counts = {};
+      for (var i = 0; i < baseList.length; i++) {
+        var p = baseList[i];
+        if (!p.topics) continue;
+        for (var j = 0; j < p.topics.length; j++) {
+          var t = p.topics[j];
+          if (t === "dsh-plugin") continue;
+          counts[t] = (counts[t] || 0) + 1;
+        }
       }
-    }
-    var tagNames = Object.keys(tagCounts).sort(function (a, b) { return tagCounts[b] - tagCounts[a]; }).slice(0, 12);
+      return counts;
+    }, [baseList]);
+
+    var tagNames = useMemo(function () {
+      return Object.keys(tagCounts).sort(function (a, b) { return tagCounts[b] - tagCounts[a]; }).slice(0, 12);
+    }, [tagCounts]);
 
     function hasUpdate(entry) {
       var rec = installed[entry.id];
@@ -333,34 +354,35 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
       return new Date(entry.pushedAt).getTime() > rec.installedAt;
     }
 
-    var q = query.trim().toLowerCase();
-    var list = baseList.filter(function (entry) {
-      if (q) {
-        var hay = (entry.fullName + " " + (entry.displayName || "") + " " + (entry.description || "") + " " + (entry.topics || []).join(" ")).toLowerCase();
-        if (hay.indexOf(q) < 0) return false;
-      }
-      if (tag && (entry.topics || []).indexOf(tag) < 0) return false;
-      if (onlyFollows && !followSet[entry.id]) return false;
-      if (onlyInstalled && !installed[entry.id]) return false;
-      return true;
-    });
-
-    var cmp = {
-      "stars-desc": function (a, b) { return b.stars - a.stars; },
-      "stars-asc": function (a, b) { return a.stars - b.stars; },
-      "forks-desc": function (a, b) { return b.forks - a.forks; },
-      "updated-desc": function (a, b) { return (b.updatedAt || "").localeCompare(a.updatedAt || ""); },
-      "created-desc": function (a, b) { return (b.createdAt || "").localeCompare(a.createdAt || ""); },
-      "created-asc": function (a, b) { return (a.createdAt || "").localeCompare(b.createdAt || ""); },
-      "name-asc": function (a, b) { return a.fullName.localeCompare(b.fullName); },
-      "update-first": function (a, b) {
-        var ua = hasUpdate(a) ? 1 : 0;
-        var ub = hasUpdate(b) ? 1 : 0;
-        if (ua !== ub) return ub - ua;
-        return b.stars - a.stars;
-      },
-    };
-    list = list.slice().sort(cmp[sortKey] || cmp["stars-desc"]);
+    var list = useMemo(function () {
+      var q = query.trim().toLowerCase();
+      var filtered = baseList.filter(function (entry) {
+        if (q) {
+          var hay = (entry.fullName + " " + (entry.displayName || "") + " " + (entry.description || "") + " " + (entry.topics || []).join(" ")).toLowerCase();
+          if (hay.indexOf(q) < 0) return false;
+        }
+        if (tag && (entry.topics || []).indexOf(tag) < 0) return false;
+        if (onlyFollows && !followSet[entry.id]) return false;
+        if (onlyInstalled && !installed[entry.id]) return false;
+        return true;
+      });
+      var cmp = {
+        "stars-desc": function (a, b) { return b.stars - a.stars; },
+        "stars-asc": function (a, b) { return a.stars - b.stars; },
+        "forks-desc": function (a, b) { return b.forks - a.forks; },
+        "updated-desc": function (a, b) { return (b.updatedAt || "").localeCompare(a.updatedAt || ""); },
+        "created-desc": function (a, b) { return (b.createdAt || "").localeCompare(a.createdAt || ""); },
+        "created-asc": function (a, b) { return (a.createdAt || "").localeCompare(b.createdAt || ""); },
+        "name-asc": function (a, b) { return a.fullName.localeCompare(b.fullName); },
+        "update-first": function (a, b) {
+          var ua = hasUpdate(a) ? 1 : 0;
+          var ub = hasUpdate(b) ? 1 : 0;
+          if (ua !== ub) return ub - ua;
+          return b.stars - a.stars;
+        },
+      };
+      return filtered.slice().sort(cmp[sortKey] || cmp["stars-desc"]);
+    }, [baseList, query, tag, onlyFollows, onlyInstalled, followSet, installed, sortKey]);
 
     // 切换 tab / 搜索 / 排序 / 筛选时回到首屏。
     useEffect(function () { setVisibleCount(PAGE_SIZE); }, [tab, query, sortKey, tag, onlyFollows, onlyInstalled]);
@@ -518,7 +540,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
         createElement("button", { className: "pm-btn" + (tab === "other" ? " active" : ""), onClick: function () { setTab("other"); loadOthers(); } }, "其他（" + state.otherCount + "）")
       ),
       createElement("div", { className: "pm-toolbar" },
-        createElement("input", { className: "pm-input", placeholder: "搜索名称或标签…", value: query, onChange: function (e) { setQuery(e.target.value); } }),
+        createElement("input", { className: "pm-input", placeholder: "搜索名称或标签…", value: queryDraft, onChange: function (e) { setQueryDraft(e.target.value); } }),
         createElement("select", { className: "pm-select", value: sortKey, onChange: function (e) { setSortKey(e.target.value); } },
           SORTS.map(function (s) { return createElement("option", { key: s.key, value: s.key }, s.label); })),
         createElement("button", { className: "pm-btn" + (onlyFollows ? " active" : ""), onClick: function () { setOnlyFollows(!onlyFollows); } }, "只看关注（" + follows.length + "）"),
