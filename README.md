@@ -18,7 +18,7 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add github:dsh-plugin-market/dsh-plugin-market
+dsh plugin --profile web add github:zhuoxuanliu53-svg/dsh-plugin-market
 # 或本地 checkout：
 dsh plugin --profile web add ./plugin-market
 ```
