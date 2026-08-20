@@ -19,8 +19,13 @@ function presetIdFrom(entry) {
 }
 
 function copyPreset(src, dest) {
-  cpSync(src, dest, { recursive: true })
-  rmSync(join(dest, '.git'), { recursive: true, force: true })
+  try {
+    cpSync(src, dest, { recursive: true })
+    rmSync(join(dest, '.git'), { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function installPreset(_profile, entry) {
@@ -38,7 +43,12 @@ export async function installPreset(_profile, entry) {
       return err(E.VERIFY_FAILED, '未找到 agent.cordis.yml（preset 组装文件）')
     }
     // 基本可读性校验：非空文本。
-    const text = readFileSync(cordis, 'utf8')
+    let text
+    try {
+      text = readFileSync(cordis, 'utf8')
+    } catch {
+      return err(E.VERIFY_FAILED, `读取 agent.cordis.yml 失败：${cordis}`)
+    }
     if (text.trim() === '') {
       return err(E.VERIFY_FAILED, 'agent.cordis.yml 为空')
     }
@@ -48,7 +58,9 @@ export async function installPreset(_profile, entry) {
     if (existsSync(dest)) {
       return err(E.CONFLICT, `preset id「${id}」已存在（${dest}）`)
     }
-    copyPreset(repoDir, dest)
+    if (!copyPreset(repoDir, dest)) {
+      return err(E.VERIFY_FAILED, `复制 preset「${id}」到 ${dest} 失败`)
+    }
 
     return ok({ packageName: id, installed: [{ name: id, composition: 'agent.cordis.yml' }], command: `复制到 ${dest}` })
   } finally {

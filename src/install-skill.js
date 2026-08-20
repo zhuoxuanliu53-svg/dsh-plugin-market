@@ -32,8 +32,13 @@ function skillsRoot() {
 }
 
 function copySkill(src, dest) {
-  cpSync(src, dest, { recursive: true })
-  rmSync(join(dest, '.git'), { recursive: true, force: true })
+  try {
+    cpSync(src, dest, { recursive: true })
+    rmSync(join(dest, '.git'), { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // 收集 skill 单元：根 SKILL.md 视为单 skill；否则 skills/ 下每个 <name>/SKILL.md。
@@ -71,7 +76,12 @@ export async function installSkill(_profile, entry) {
     const root = skillsRoot()
     const installed = []
     for (const unit of units) {
-      const text = readFileSync(join(unit.srcDir, 'SKILL.md'), 'utf8')
+      let text
+      try {
+        text = readFileSync(join(unit.srcDir, 'SKILL.md'), 'utf8')
+      } catch {
+        return err(E.VERIFY_FAILED, `读取 SKILL.md 失败：${unit.srcDir}`)
+      }
       const fm = parseSkillFrontmatter(text)
       if (fm.name === '' || !KEBAB_RE.test(fm.name)) {
         return err(E.VERIFY_FAILED, `SKILL.md 缺少合法的 kebab-case name（frontmatter）：${fm.name || '(空)'}`)
@@ -80,7 +90,9 @@ export async function installSkill(_profile, entry) {
         return err(E.VERIFY_FAILED, `SKILL.md「${fm.name}」缺少 description（frontmatter）`)
       }
       const dest = join(root, fm.name)
-      copySkill(unit.srcDir, dest)
+      if (!copySkill(unit.srcDir, dest)) {
+        return err(E.VERIFY_FAILED, `复制 skill「${fm.name}」到 ${dest} 失败`)
+      }
       installed.push({ name: fm.name, description: fm.description })
     }
 

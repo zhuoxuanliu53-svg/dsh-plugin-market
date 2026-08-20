@@ -42,7 +42,7 @@ export async function fetchGithubTopic(token = '', timeoutMs = 15000, cacheDir =
 
   const now = Date.now()
   if (cache.buckets !== null && now - cache.at < CACHE_TTL) {
-    return { ok: true, value: { ...cache.buckets, rateLimited: false } }
+    return { ok: true, value: { ...cache.buckets, rateLimited: false, failures: [] } }
   }
 
   const headers = { 'accept': 'application/vnd.github+json' }
@@ -54,7 +54,7 @@ export async function fetchGithubTopic(token = '', timeoutMs = 15000, cacheDir =
     const result = await fetchJson(url, headers, timeoutMs)
     if (!result.ok) {
       if (result.error.code === 'RATE_LIMITED' && cache.buckets !== null) {
-        return { ok: true, value: { ...cache.buckets, rateLimited: true } }
+        return { ok: true, value: { ...cache.buckets, rateLimited: true, failures: [] } }
       }
       return result
     }
@@ -66,8 +66,14 @@ export async function fetchGithubTopic(token = '', timeoutMs = 15000, cacheDir =
   const shapes = await mapLimit(all, SHAPE_CONCURRENCY, (repo) => detectShape(repo, token, timeoutMs))
 
   const buckets = emptyBuckets()
+  const failures = []
   for (let i = 0; i < all.length; i++) {
-    const entry = fromGithub(all[i], shapes[i] || SHAPE.OTHER)
+    const shapeRes = shapes[i]
+    if (!shapeRes || !shapeRes.ok) {
+      failures.push(all[i] && all[i].full_name ? all[i].full_name : String(i))
+      continue
+    }
+    const entry = fromGithub(all[i], shapeRes.value)
     if (!entry) continue
     const target = buckets[entry.shape] ? entry.shape : SHAPE.OTHER
     buckets[target].push(entry)
@@ -75,5 +81,5 @@ export async function fetchGithubTopic(token = '', timeoutMs = 15000, cacheDir =
 
   cache = { at: Date.now(), buckets }
   if (cacheDir !== '') writeJsonFile(join(cacheDir, 'topic.json'), cache)
-  return { ok: true, value: { ...buckets, rateLimited: false } }
+  return { ok: true, value: { ...buckets, rateLimited: false, failures } }
 }

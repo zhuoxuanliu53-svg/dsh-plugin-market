@@ -1,25 +1,7 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-
-const winCmdShim = process.platform === 'win32'
-
-function nodeExecutable() {
-  if (process.argv0 && process.argv0 !== '' && isAbsolute(process.argv0) && existsSync(process.argv0)) {
-    return process.argv0
-  }
-  return process.execPath
-}
-
-function dshArgv() {
-  const entry = process.argv[1]
-  if (entry !== undefined && /[\\/](?:bin\.(?:js|ts)|dsh)$/.test(entry)) {
-    const abs = resolve(entry)
-    return { file: nodeExecutable(), args: [...process.execArgv, abs], cwd: dirname(abs), viaShell: false }
-  }
-  return { file: 'dsh', args: [], cwd: undefined, viaShell: winCmdShim }
-}
+import { dshArgv, nodeExecutable } from './spawn.js'
 
 export function restartAllowed(config) {
   return !(config && config.allowRestart === false)

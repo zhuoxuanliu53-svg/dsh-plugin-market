@@ -15,7 +15,13 @@ export async function fetchAllSources(opts = {}) {
   const topicBuckets = githubRes.ok ? githubRes.value : null
 
   if (!curatedRes.ok) warnings.push(`curated 源失败：${curatedRes.error.message}`)
-  if (!githubRes.ok) warnings.push(`GitHub topic 源失败：${githubRes.error.message}`)
+  if (!githubRes.ok) {
+    warnings.push(`GitHub topic 源失败：${githubRes.error.message}`)
+  } else if (Array.isArray(githubRes.value.failures) && githubRes.value.failures.length > 0) {
+    const n = githubRes.value.failures.length
+    const sample = githubRes.value.failures.slice(0, 5).join(', ')
+    warnings.push(`GitHub topic 形态识别失败 ${n} 个${n > 5 ? `（示例：${sample}…）` : `：${sample}`}`)
+  }
 
   // 两个源都失败：报错（附 warning 明细）。
   if (!curatedRes.ok && !githubRes.ok) {

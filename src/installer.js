@@ -1,7 +1,6 @@
-import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { err, ok, E } from './result.js'
+import { dshArgv, killChild, nodeExecutable, spawnShim, winCmdShim } from './spawn.js'
 import {
   conflictingEntryIds,
   hasDshManifest,
@@ -11,41 +10,10 @@ import {
   readProfileBundles,
 } from './profile.js'
 
+export { winCmdShim }
+
 const INSTALL_TIMEOUT_MS = Number(process.env.DSH_MARKET_INSTALL_TIMEOUT_MS) || 15 * 60 * 1000
 const REMOVE_TIMEOUT_MS = 5 * 60 * 1000
-
-// ---- Windows .cmd shim（同 dsh 官方 plugin forwarder 的做法） ----
-export const winCmdShim = process.platform === 'win32'
-const COMSPEC = process.env.ComSpec ?? 'cmd.exe'
-const CMD_METACHARS = /[\s"&|<>^()%!]/
-
-function quoteCmdArg(arg) {
-  if (!CMD_METACHARS.test(arg)) return arg
-  return `"${arg.replace(/"/g, '""')}"`
-}
-
-function cmdCommandLine(argv) {
-  return argv.map(quoteCmdArg).join(' ')
-}
-
-function spawnShim(file, args, options = {}) {
-  const { viaShell = false, ...spawnOptions } = options
-  if (viaShell && process.platform === 'win32') {
-    return spawn(COMSPEC, ['/d', '/s', '/c', `"${cmdCommandLine([file, ...args])}"`], {
-      ...spawnOptions,
-      shell: false,
-      windowsVerbatimArguments: true,
-    })
-  }
-  return spawn(file, args, { ...spawnOptions, shell: false })
-}
-
-function nodeExecutable() {
-  if (process.argv0 && process.argv0 !== '' && isAbsolute(process.argv0) && existsSync(process.argv0)) {
-    return process.argv0
-  }
-  return process.execPath
-}
 
 const nodeBinDir = dirname(nodeExecutable())
 
@@ -54,27 +22,6 @@ function spawnEnv() {
   const parts = (process.env.PATH ?? '').split(sep).filter((p) => p !== '')
   if (!parts.includes(nodeBinDir)) parts.push(nodeBinDir)
   return { ...process.env, CI: 'true', PATH: parts.join(sep) }
-}
-
-function dshArgv() {
-  const entry = process.argv[1]
-  if (entry !== undefined && /[\\/](?:bin\.(?:js|ts)|dsh)$/.test(entry)) {
-    const abs = resolve(entry)
-    return { file: nodeExecutable(), args: [...process.execArgv, abs], cwd: dirname(abs), viaShell: false }
-  }
-  return { file: 'dsh', args: [], cwd: undefined, viaShell: winCmdShim }
-}
-
-function killChild(child) {
-  if (process.platform === 'win32' && child.pid !== undefined) {
-    try {
-      spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
-      return
-    } catch {
-      // 落到普通 kill
-    }
-  }
-  child.kill('SIGKILL')
 }
 
 export function runPlugin(profile, pluginArgs, timeoutMs = INSTALL_TIMEOUT_MS) {
