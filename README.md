@@ -46,7 +46,7 @@ Repositories that match none of the three shapes are kept in a hidden **Other** 
 ### Sharing
 
 - Plain-text manifest export (one item per line, paste-ready for comments) and import
-- Optional GitHub token (stored in the local profile only)
+- Optional GitHub token (stored in the local profile only, never committed or exported)
 
 ## Installation
 

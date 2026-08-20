@@ -118,7 +118,7 @@ preset:github:owner/repo
 | `<DSH_HOME>/profiles/<p>/.dsh-plugin-market/state.json` | `follows`、`installed`（含 `shape`/`spec`）、可选 `token` |
 | `<DSH_HOME>/profiles/<p>/cordis.patch.yml` | 热启用 / 禁用行 |
 
-token 仅存于 profile，不进入名单导出。
+token 仅存于 profile，不进入名单导出、不提交仓库；发布前用 `git grep -nE 'gh[op]_|github_pat_'` 自查，绝不把 PAT 写进源码或提交历史。
 
 ## 开发环境
 
