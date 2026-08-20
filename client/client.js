@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
 .pm-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);text-decoration:none}\n\
 .pm-name:hover{color:var(--dsw-alias-brand-primary)}\n\
 .pm-stats{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}\n\
+.pm-byline{display:flex;gap:6px;margin-top:2px;align-items:center;flex-wrap:wrap}\n\
 .pm-desc{font-size:12px;color:var(--dsw-alias-label-secondary);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}\n\
 .pm-actions{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}\n\
 .pm-badge{font-size:10px;border-radius:10px;padding:0 8px;line-height:16px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}\n\
@@ -224,7 +225,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
       var cur = ops[name];
       if (cur && cur.running) return;
       setOp(name, { running: verb, result: null });
-      apiPost(path, { fullName: name }).then(function (r) {
+      apiPost(path, { id: name }).then(function (r) {
         setOp(name, { running: null, result: r || { status: "failed", message: "无响应" } });
         refresh(false);
       }).catch(function (e) {
@@ -233,20 +234,20 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     }
 
     function toggleFollow(name) {
-      apiPost("/pm/follow", { fullName: name }).then(function (r) {
+      apiPost("/pm/follow", { id: name }).then(function (r) {
         if (r && Array.isArray(r.follows)) setFollows(r.follows);
       }).catch(function () {});
     }
 
     function toggleAutoUpdate(name) {
       var rec = installed[name];
-      apiPost("/pm/auto-update", { fullName: name, enabled: !(rec && rec.autoUpdate) }).then(function (r) {
+      apiPost("/pm/auto-update", { id: name, enabled: !(rec && rec.autoUpdate) }).then(function (r) {
         if (r && r.installed) setInstalled(r.installed);
       }).catch(function () {});
     }
 
     function toggleHot(name, disabled) {
-      apiPost("/pm/hot", { fullName: name, disabled: disabled }).then(function (r) {
+      apiPost("/pm/hot", { id: name, disabled: disabled }).then(function (r) {
         setOp(name, { running: null, result: { status: r.error ? "failed" : "ok", message: r.error ? r.error.message : (disabled ? "已停用（HMR 生效）" : "已启用（HMR 生效）") } });
         refresh(false);
       }).catch(function (e) {
@@ -327,7 +328,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     var tagNames = Object.keys(tagCounts).sort(function (a, b) { return tagCounts[b] - tagCounts[a]; }).slice(0, 12);
 
     function hasUpdate(entry) {
-      var rec = installed[entry.fullName];
+      var rec = installed[entry.id];
       if (!rec || !rec.installedAt || !entry.pushedAt) return false;
       return new Date(entry.pushedAt).getTime() > rec.installedAt;
     }
@@ -335,12 +336,12 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     var q = query.trim().toLowerCase();
     var list = baseList.filter(function (entry) {
       if (q) {
-        var hay = (entry.fullName + " " + (entry.description || "") + " " + (entry.topics || []).join(" ")).toLowerCase();
+        var hay = (entry.fullName + " " + (entry.displayName || "") + " " + (entry.description || "") + " " + (entry.topics || []).join(" ")).toLowerCase();
         if (hay.indexOf(q) < 0) return false;
       }
       if (tag && (entry.topics || []).indexOf(tag) < 0) return false;
-      if (onlyFollows && !followSet[entry.fullName]) return false;
-      if (onlyInstalled && !installed[entry.fullName]) return false;
+      if (onlyFollows && !followSet[entry.id]) return false;
+      if (onlyInstalled && !installed[entry.id]) return false;
       return true;
     });
 
@@ -383,19 +384,23 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     // ---- 渲染 ----
 
     function renderCard(entry) {
-      var followed = !!followSet[entry.fullName];
-      var rec = installed[entry.fullName];
-      var op = ops[entry.fullName];
+      var followed = !!followSet[entry.id];
+      var rec = installed[entry.id];
+      var op = ops[entry.id];
       var upd = hasUpdate(entry);
       var running = op && op.running;
       var opResult = op && op.result;
       var isCurated = entry.source === "curated";
       var tags = (entry.topics || []).filter(function (x) { return x !== "dsh-plugin"; }).slice(0, 4);
 
-      return createElement("div", { className: "pm-card", key: entry.fullName },
+      return createElement("div", { className: "pm-card", key: entry.id },
         createElement("div", { className: "pm-card-head" },
-          createElement("a", { className: "pm-name", href: entry.url, target: "_blank", rel: "noreferrer" }, entry.fullName),
+          createElement("a", { className: "pm-name", href: entry.url, target: "_blank", rel: "noreferrer" }, entry.displayName || entry.fullName),
           createElement("span", { className: "pm-stats" }, "★ " + entry.stars + " · ⑂ " + entry.forks)
+        ),
+        createElement("div", { className: "pm-byline" },
+          createElement("span", { className: "pm-stats" }, entry.fullName),
+          entry.subpath ? createElement("span", { className: "pm-badge" }, "#path:/" + entry.subpath) : null
         ),
         createElement("div", { className: "pm-actions" },
           createElement("span", { className: "pm-badge " + (isCurated ? "curated" : "community") }, isCurated ? "已审核" : "社区"),
@@ -407,15 +412,15 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
         entry.description ? createElement("div", { className: "pm-desc" }, entry.description) : null,
         tags.length ? createElement("div", { className: "pm-tags-row" }, tags.map(function (tg) { return createElement("span", { className: "pm-tag", key: tg }, tg); })) : null,
         createElement("div", { className: "pm-actions" },
-          createElement("button", { className: "pm-btn" + (followed ? " active" : ""), onClick: function () { toggleFollow(entry.fullName); } }, followed ? "已关注" : "关注"),
+          createElement("button", { className: "pm-btn" + (followed ? " active" : ""), onClick: function () { toggleFollow(entry.id); } }, followed ? "已关注" : "关注"),
           rec
-            ? createElement("button", { className: "pm-btn", disabled: !!running, onClick: function () { runOp(entry.fullName, "/pm/update", "update"); } }, "更新")
-            : createElement("button", { className: "pm-btn", disabled: !!running, onClick: function () { runOp(entry.fullName, "/pm/install", "install"); } }, running === "install" ? "安装中…" : "安装"),
-          rec ? createElement("button", { className: "pm-btn", disabled: !!running, onClick: function () { runOp(entry.fullName, "/pm/remove", "remove"); } }, "卸载") : null,
+            ? createElement("button", { className: "pm-btn", disabled: !!running, onClick: function () { runOp(entry.id, "/pm/update", "update"); } }, "更新")
+            : createElement("button", { className: "pm-btn", disabled: !!running, onClick: function () { runOp(entry.id, "/pm/install", "install"); } }, running === "install" ? "安装中…" : "安装"),
+          rec ? createElement("button", { className: "pm-btn", disabled: !!running, onClick: function () { runOp(entry.id, "/pm/remove", "remove"); } }, "卸载") : null,
           rec ? createElement("label", { className: "pm-auto" },
-            createElement("input", { type: "checkbox", checked: !!rec.autoUpdate, onChange: function () { toggleAutoUpdate(entry.fullName); } }),
+            createElement("input", { type: "checkbox", checked: !!rec.autoUpdate, onChange: function () { toggleAutoUpdate(entry.id); } }),
             "自动更新") : null,
-          rec ? createElement("button", { className: "pm-btn", onClick: function () { toggleHot(entry.fullName, true); } }, "停用") : null
+          rec ? createElement("button", { className: "pm-btn", onClick: function () { toggleHot(entry.id, true); } }, "停用") : null
         ),
         running ? createElement("div", { className: "pm-msg pm-warn" }, running === "install" ? "安装中…" : running === "update" ? "更新中…" : "卸载中…") : null,
         opResult && opResult.command ? createElement("div", { className: "pm-cmd" }, "$ " + opResult.command) : null,

@@ -15,8 +15,10 @@ export function buildManifest(state) {
   const installed = state && state.installed && typeof state.installed === 'object' ? state.installed : {}
   const lines = []
   let count = 0
-  for (const [fullName, rec] of Object.entries(installed)) {
+  for (const [id, rec] of Object.entries(installed)) {
     if (!rec || typeof rec !== 'object') continue
+    // installed 的 key 是条目 id，可能带 #path:/ 子目录后缀；导出/回退用干净的 owner/repo。
+    const fullName = String(id).split('#')[0]
     const shape = rec.shape === 'skill' ? 'skill' : (rec.shape === 'preset' ? 'preset' : 'bundle')
     if (shape === 'bundle') {
       lines.push((typeof rec.spec === 'string' && rec.spec !== '') ? rec.spec : `github:${fullName}`)

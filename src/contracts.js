@@ -9,6 +9,13 @@ export function isFullName(x) {
   return typeof x === 'string' && FULL_NAME_RE.test(x)
 }
 
+// 条目唯一标识：owner/repo 或 owner/repo#path:/subpath（monorepo 子目录）。
+const ENTRY_ID_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#path:\/[A-Za-z0-9_.\/-]+)?$/
+
+export function isEntryId(x) {
+  return typeof x === 'string' && ENTRY_ID_RE.test(x)
+}
+
 export function validateFullName(x) {
   if (!isFullName(x)) {
     return err(E.INVALID_ARG, '无效的插件标识（应为 owner/repo）：' + String(x))
@@ -58,7 +65,7 @@ export function normalizeFollowState(v) {
     const seen = new Set()
     const out = []
     for (const item of v) {
-      if (typeof item === 'string' && item !== '' && !seen.has(item)) {
+      if (typeof item === 'string' && isEntryId(item) && !seen.has(item)) {
         seen.add(item)
         out.push(item)
       }
@@ -73,7 +80,7 @@ export function normalizeState(v) {
   const installed = {}
   if (v && v.installed && typeof v.installed === 'object' && !Array.isArray(v.installed)) {
     for (const [name, rec] of Object.entries(v.installed)) {
-      if (isFullName(name)) installed[name] = normalizeInstallState(rec)
+      if (isEntryId(name)) installed[name] = normalizeInstallState(rec)
     }
   }
   return { follows, installed }

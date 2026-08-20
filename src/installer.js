@@ -57,17 +57,23 @@ export function runPlugin(profile, pluginArgs, timeoutMs = INSTALL_TIMEOUT_MS) {
 // ---- 目标名与 spec ----
 
 export function installSpecFor(entry) {
-  // registry 的 install 字段是权威 spec（覆盖 npm/scoped/github/github#path 四种形态）。
+  // registry 的 install 字段是权威 spec（覆盖 npm/scoped/github/github#path/release tarball 五种形态）。
   if (entry && typeof entry.install === 'string' && entry.install !== '') {
     const m = /\badd\s+(\S+)/.exec(entry.install.trim())
     if (m && m[1] !== '') return m[1]
   }
   if (entry && typeof entry.npm === 'string' && entry.npm !== '') return entry.npm
+  // 兜底：按 url 解析出的子目录生成 github:owner/repo#path:/subpath。
+  if (entry && typeof entry.subpath === 'string' && entry.subpath !== '') {
+    return `github:${entry.fullName}#path:/${entry.subpath}`
+  }
   return `github:${entry.fullName}`
 }
 
 export function repoNameOf(fullName) {
-  const parts = String(fullName).split('/')
+  // 兼容条目 id（可能带 #path:/ 子目录后缀）：先剥掉 # 之后的部分。
+  const bare = String(fullName).split('#')[0]
+  const parts = bare.split('/')
   return parts[1] || parts[0] || fullName
 }
 

@@ -1,5 +1,5 @@
 import { ok, err, E } from './result.js'
-import { isFullName } from './contracts.js'
+import { isEntryId } from './contracts.js'
 import { fetchAllSources } from './sources/index.js'
 import { installOne, removeOne, updateOne, repoNameOf, installSpecFor } from './installer.js'
 import { installSkill } from './install-skill.js'
@@ -82,10 +82,10 @@ export function createMarketServer(host, config) {
     writeState(profile, undefined, state)
   }
 
-  function packageNameFor(fullName) {
-    const rec = state.installed[fullName]
+  function packageNameFor(id) {
+    const rec = state.installed[id]
     if (rec && typeof rec.packageName === 'string' && rec.packageName !== '') return rec.packageName
-    return repoNameOf(fullName)
+    return repoNameOf(id)
   }
 
   function installLabel(entry) {
@@ -185,28 +185,28 @@ export function createMarketServer(host, config) {
   }
 
   register('/pm/follow', (req, res) => guardPost(req, res, (body) => {
-    const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
-    if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
-    const idx = state.follows.indexOf(fullName)
+    const id = typeof body.id === 'string' ? body.id.toLowerCase() : ''
+    if (!isEntryId(id)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const idx = state.follows.indexOf(id)
     if (idx >= 0) state.follows.splice(idx, 1)
-    else state.follows.push(fullName)
+    else state.follows.push(id)
     save()
     respond(res, ok({ follows: state.follows.slice() }))
   }))
 
   register('/pm/install', (req, res) => guardPost(req, res, async (body) => {
-    const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
-    if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const id = typeof body.id === 'string' ? body.id.toLowerCase() : ''
+    if (!isEntryId(id)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
     const registry = await getRegistry()
     const entry = registry && Array.isArray(registry.merged)
-      ? registry.merged.find((e) => e.fullName === fullName)
+      ? registry.merged.find((e) => e.id === id)
       : null
     if (entry === null) {
       return respond(res, err(E.NOT_IN_REGISTRY, '插件不在市场白名单内，拒绝安装'))
     }
     const result = await installEntry(profile, entry)
     if (result.ok) {
-      state.installed[fullName] = {
+      state.installed[id] = {
         installedAt: Date.now(),
         autoUpdate: false,
         lastAutoUpdateAt: 0,
@@ -222,12 +222,12 @@ export function createMarketServer(host, config) {
   }))
 
   register('/pm/update', (req, res) => guardPost(req, res, async (body) => {
-    const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
-    if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
-    const pkg = packageNameFor(fullName)
+    const id = typeof body.id === 'string' ? body.id.toLowerCase() : ''
+    if (!isEntryId(id)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const pkg = packageNameFor(id)
     const result = await updateOne(profile, pkg)
-    if (result.ok && state.installed[fullName]) {
-      state.installed[fullName].lastAutoUpdateAt = Date.now()
+    if (result.ok && state.installed[id]) {
+      state.installed[id].lastAutoUpdateAt = Date.now()
       save()
     }
     respond(res, ok(clientResult(result, 'update', pkg)))
@@ -235,29 +235,29 @@ export function createMarketServer(host, config) {
 
   register('/pm/update-all', (req, res) => guardPost(req, res, async () => {
     const results = {}
-    for (const fullName of Object.keys(state.installed)) {
-      const rec = state.installed[fullName]
+    for (const id of Object.keys(state.installed)) {
+      const rec = state.installed[id]
       if (!rec || rec.shape !== 'bundle') continue
-      const pkg = packageNameFor(fullName)
+      const pkg = packageNameFor(id)
       const result = await updateOne(profile, pkg)
-      results[fullName] = clientResult(result, 'update', pkg)
-      if (result.ok) state.installed[fullName].lastAutoUpdateAt = Date.now()
+      results[id] = clientResult(result, 'update', pkg)
+      if (result.ok) state.installed[id].lastAutoUpdateAt = Date.now()
     }
     save()
     respond(res, ok({ results }))
   }))
 
   register('/pm/remove', (req, res) => guardPost(req, res, async (body) => {
-    const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
-    if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
-    const rec = state.installed[fullName]
-    const pkg = packageNameFor(fullName)
+    const id = typeof body.id === 'string' ? body.id.toLowerCase() : ''
+    if (!isEntryId(id)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const rec = state.installed[id]
+    const pkg = packageNameFor(id)
     const result = await removeOne(profile, pkg)
     if (result.ok) {
       const rows = rowIdsForPackage(host.loader.entries(), profileDirectory, pkg)
       removeRowBlocks(patchPath, rows)
-      delete state.installed[fullName]
-      const idx = state.follows.indexOf(fullName)
+      delete state.installed[id]
+      const idx = state.follows.indexOf(id)
       if (idx >= 0) state.follows.splice(idx, 1)
       save()
     }
@@ -265,12 +265,12 @@ export function createMarketServer(host, config) {
   }))
 
   register('/pm/auto-update', (req, res) => guardPost(req, res, (body) => {
-    const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
-    if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
-    const rec = state.installed[fullName]
+    const id = typeof body.id === 'string' ? body.id.toLowerCase() : ''
+    if (!isEntryId(id)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const rec = state.installed[id]
     const enabled = body.enabled !== false
     if (!rec) {
-      state.installed[fullName] = { installedAt: Date.now(), autoUpdate: enabled, lastAutoUpdateAt: 0, packageName: repoNameOf(fullName), shape: 'bundle', spec: `github:${fullName}` }
+      state.installed[id] = { installedAt: Date.now(), autoUpdate: enabled, lastAutoUpdateAt: 0, packageName: repoNameOf(id), shape: 'bundle', spec: `github:${id}` }
     } else {
       rec.autoUpdate = enabled
     }
@@ -279,10 +279,10 @@ export function createMarketServer(host, config) {
   }))
 
   register('/pm/hot', (req, res) => guardPost(req, res, async (body) => {
-    const fullName = typeof body.fullName === 'string' ? body.fullName.toLowerCase() : ''
-    if (!isFullName(fullName)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
+    const id = typeof body.id === 'string' ? body.id.toLowerCase() : ''
+    if (!isEntryId(id)) return respond(res, err(E.INVALID_ARG, '无效的插件标识'))
     const disabled = !!body.disabled
-    const pkg = packageNameFor(fullName)
+    const pkg = packageNameFor(id)
     const rows = rowIdsForPackage(host.loader.entries(), profileDirectory, pkg)
     if (rows.length === 0) {
       return respond(res, err(E.PATCH_REFUSED, '该插件没有可写入补丁层的行 id（可能是纯客户端插件）'))
@@ -300,7 +300,7 @@ export function createMarketServer(host, config) {
       if (!r.ok) allOk = false
     }
     respond(res, allOk
-      ? ok({ fullName, disabled, rows: results, patchState: readUserPatchState(patchPath) })
+      ? ok({ id, disabled, rows: results, patchState: readUserPatchState(patchPath) })
       : err(E.PATCH_REFUSED, `部分行写入失败：${results.filter((r) => !r.ok).map((r) => r.rowId).join(', ')}`, { rows: results }))
   }))
 
@@ -338,7 +338,7 @@ export function createMarketServer(host, config) {
       const r = await installEntry(profile, entry)
       results[label] = clientResult(r, 'add', installLabel(entry), entry.shape === 'bundle')
       if (r.ok) {
-        state.installed[entry.fullName] = {
+        state.installed[entry.id] = {
           installedAt: Date.now(),
           autoUpdate: false,
           lastAutoUpdateAt: 0,
@@ -382,13 +382,14 @@ export function createMarketServer(host, config) {
 }
 
 function findEntryForItem(merged, item) {
-  if (item.shape === 'skill' || item.shape === 'preset') {
-    return merged.find((e) => e.shape === item.shape && e.fullName === item.fullName) || null
-  }
+  // 优先按 spec 精确匹配：bundle 的 spec（含 #path、npm、tarball）能唯一定位 monorepo 子目录条目。
+  const bySpec = merged.find((e) => e.shape === item.shape && installSpecFor(e) === item.spec)
+  if (bySpec) return bySpec
+  // 回退：按 id 或 fullName（skill/preset 的 github:owner/repo，及普通 bundle）。
   if (item.fullName !== '') {
-    return merged.find((e) => e.shape === 'bundle' && e.fullName === item.fullName) || null
+    return merged.find((e) => e.shape === item.shape && (e.id === item.fullName || e.fullName === item.fullName)) || null
   }
-  return merged.find((e) => e.shape === 'bundle' && (e.npm === item.spec || e.name === item.spec)) || null
+  return merged.find((e) => e.shape === item.shape && (e.npm === item.spec || e.name === item.spec)) || null
 }
 
 export { readInstalled, readProfileBundles, profileDir }
