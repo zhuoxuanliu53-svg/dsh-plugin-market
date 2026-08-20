@@ -7,9 +7,8 @@ lib/
 # runtime export artifacts
 exports/
 
-# local development docs (not published)
+# local planning notes (not published)
 PLAN.md
-DEVELOPMENT.md
 
 # OS / editor
 .DS_Store
