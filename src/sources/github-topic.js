@@ -1,6 +1,8 @@
 import { fetchJson } from '../net.js'
 import { fromGithub } from '../entities.js'
 import { detectShape, SHAPE } from '../shape.js'
+import { readJsonFile, writeJsonFile } from '../cache.js'
+import { join } from 'node:path'
 
 const TOPIC = 'dsh-plugin'
 const PER_PAGE = 100
@@ -12,6 +14,14 @@ let cache = { at: 0, buckets: null }
 
 function emptyBuckets() {
   return { bundle: [], skill: [], preset: [], other: [] }
+}
+
+function restore(cacheDir) {
+  if (cacheDir === undefined || cacheDir === '' || cache.buckets !== null) return
+  const cached = readJsonFile(join(cacheDir, 'topic.json'))
+  if (cached && typeof cached === 'object' && cached.buckets && typeof cached.at === 'number') {
+    cache = { at: cached.at, buckets: cached.buckets }
+  }
 }
 
 async function mapLimit(items, limit, fn) {
@@ -27,7 +37,9 @@ async function mapLimit(items, limit, fn) {
   return out
 }
 
-export async function fetchGithubTopic(token = '', timeoutMs = 15000) {
+export async function fetchGithubTopic(token = '', timeoutMs = 15000, cacheDir = '') {
+  restore(cacheDir)
+
   const now = Date.now()
   if (cache.buckets !== null && now - cache.at < CACHE_TTL) {
     return { ok: true, value: { ...cache.buckets, rateLimited: false } }
@@ -62,5 +74,6 @@ export async function fetchGithubTopic(token = '', timeoutMs = 15000) {
   }
 
   cache = { at: Date.now(), buckets }
+  if (cacheDir !== '') writeJsonFile(join(cacheDir, 'topic.json'), cache)
   return { ok: true, value: { ...buckets, rateLimited: false } }
 }

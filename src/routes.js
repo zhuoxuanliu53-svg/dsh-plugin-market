@@ -9,6 +9,7 @@ import { findUserPatchPath, readUserPatchState, rowIdsForPackage, disableRow, en
 import { buildManifest, parseManifest } from './manifest.js'
 import { readState, writeState, writeToken } from './state.js'
 import { readInstalled, profileDir, readProfileBundles } from './profile.js'
+import { join } from 'node:path'
 
 // ---- HTTP 小工具 ----
 
@@ -52,6 +53,7 @@ export function createMarketServer(host, config) {
   const profile = config.profile
   const profileDirectory = profileDir(profile)
   const patchPath = findUserPatchPath(host.loader.entries(), profileDirectory)
+  const cacheDir = join(profileDirectory, '.dsh-plugin-market')
 
   // 进程内状态：关注 + 已安装 + token。每次变更写盘。
   let state = readState(profile)
@@ -64,7 +66,7 @@ export function createMarketServer(host, config) {
     if (!force && registryCache.payload !== null && now - registryCache.at < REGISTRY_CACHE_TTL) {
       return registryCache.payload
     }
-    const res = await fetchAllSources({ token: state.token })
+    const res = await fetchAllSources({ token: state.token, cacheDir })
     if (res.ok) {
       registryCache = { at: Date.now(), payload: res.value }
       return res.value

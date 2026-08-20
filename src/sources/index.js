@@ -5,10 +5,11 @@ import { mergeShapes } from '../entities.js'
 export async function fetchAllSources(opts = {}) {
   const token = typeof opts.token === 'string' ? opts.token : ''
   const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : 15000
+  const cacheDir = typeof opts.cacheDir === 'string' ? opts.cacheDir : ''
   const warnings = []
 
-  const curatedRes = await fetchCurated(timeoutMs)
-  const githubRes = await fetchGithubTopic(token, timeoutMs)
+  const curatedRes = await fetchCurated(timeoutMs, cacheDir)
+  const githubRes = await fetchGithubTopic(token, timeoutMs, cacheDir)
 
   const curated = curatedRes.ok ? curatedRes.value.plugins : []
   const topicBuckets = githubRes.ok ? githubRes.value : null

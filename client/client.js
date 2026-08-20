@@ -9,6 +9,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
   var createElement = React.createElement;
   var useState = React.useState;
   var useEffect = React.useEffect;
+  var useRef = React.useRef;
 
   var CSS = "\
 .pm-root{font-family:inherit;color:var(--dsw-alias-label-primary);box-sizing:border-box}\n\
@@ -46,6 +47,7 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
 .pm-ok{color:var(--dsw-alias-state-success-primary)}\n\
 .pm-warn{color:var(--dsw-alias-state-warn-primary)}\n\
 .pm-empty{font-size:12px;color:var(--dsw-alias-label-secondary);padding:16px 0;text-align:center}\n\
+.pm-sentinel{font-size:12px;color:var(--dsw-alias-label-secondary);padding:12px 0;text-align:center}\n\
 .pm-auto{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}\n\
 .pm-modal{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}\n\
 .pm-modal-box{background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px;max-width:640px;width:92%;max-height:80vh;overflow:auto;display:flex;flex-direction:column;gap:10px}\n\
@@ -103,6 +105,12 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     var othersRef = useState([]);
     var others = othersRef[0];
     var setOthers = othersRef[1];
+
+    var PAGE_SIZE = 100;
+    var visibleRef = useState(PAGE_SIZE);
+    var visibleCount = visibleRef[0];
+    var setVisibleCount = visibleRef[1];
+    var sentinelRef = useRef(null);
 
     var followsRef = useState([]);
     var follows = followsRef[0];
@@ -353,6 +361,25 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
     };
     list = list.slice().sort(cmp[sortKey] || cmp["stars-desc"]);
 
+    // 切换 tab / 搜索 / 排序 / 筛选时回到首屏。
+    useEffect(function () { setVisibleCount(PAGE_SIZE); }, [tab, query, sortKey, tag, onlyFollows, onlyInstalled]);
+
+    // 滚动触底加载下一页（IntersectionObserver 观察哨兵）。
+    useEffect(function () {
+      var el = sentinelRef.current;
+      if (!el || visibleCount >= list.length) return;
+      if (typeof IntersectionObserver === "undefined") return;
+      var io = new IntersectionObserver(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) setVisibleCount(function (v) { return v + PAGE_SIZE; });
+        }
+      }, { rootMargin: "200px" });
+      io.observe(el);
+      return function () { io.disconnect(); };
+    }, [visibleCount, list.length]);
+
+    var visibleList = list.slice(0, visibleCount);
+
     // ---- 渲染 ----
 
     function renderCard(entry) {
@@ -494,7 +521,10 @@ window.__ModuleLoader__.load({ id: "dsh-plugin-market", factory: (require) => {
       ),
       tagNames.length ? createElement("div", { className: "pm-tags-row" },
         tagNames.map(function (tg) { return createElement("span", { className: "pm-tag" + (tag === tg ? " active" : ""), key: tg, onClick: function () { setTag(tag === tg ? "" : tg); } }, tg + " (" + tagCounts[tg] + ")"); })) : null,
-      list.length ? createElement("div", { className: "pm-list" }, list.map(renderCard)) : createElement("div", { className: "pm-empty" }, "没有匹配的插件"),
+      list.length ? createElement("div", { className: "pm-list" },
+        visibleList.map(renderCard),
+        visibleCount < list.length ? createElement("div", { className: "pm-sentinel", ref: sentinelRef }, "加载更多…") : null
+      ) : createElement("div", { className: "pm-empty" }, "没有匹配的插件"),
       modal === "export" ? renderExportModal() : null,
       modal === "import" ? renderImportModal() : null,
       modal === "token" ? renderTokenModal() : null

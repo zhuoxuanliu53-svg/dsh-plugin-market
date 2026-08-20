@@ -1,12 +1,24 @@
 import { marketFetch } from '../net.js'
 import { fromCurated } from '../entities.js'
+import { readJsonFile, writeJsonFile } from '../cache.js'
+import { join } from 'node:path'
 
 const REGISTRY_URL = process.env.DSHM_REGISTRY_URL ?? 'https://awesome-dsh-plugin.com/plugins.json'
 
-// 上次被源站确认有效的数据 + 校验器（etag）。只在内存，不做磁盘缓存。
+// 上次被源站确认有效的数据 + 校验器（etag）。内存为主，cacheDir 提供时落盘，重启后可恢复。
 let served = { etag: null, data: null }
 
-export async function fetchCurated(timeoutMs = 15000) {
+function restore(cacheDir) {
+  if (cacheDir === undefined || cacheDir === '' || served.data !== null) return
+  const cached = readJsonFile(join(cacheDir, 'curated.json'))
+  if (cached && typeof cached === 'object' && cached.data) {
+    served = { etag: typeof cached.etag === 'string' ? cached.etag : null, data: cached.data }
+  }
+}
+
+export async function fetchCurated(timeoutMs = 15000, cacheDir = '') {
+  restore(cacheDir)
+
   const headers = {}
   if (served.etag !== null) headers['if-none-match'] = served.etag
 
@@ -53,5 +65,6 @@ export async function fetchCurated(timeoutMs = 15000) {
     etag: respHeaders && (respHeaders.etag || respHeaders['last-modified']) ? (respHeaders.etag || respHeaders['last-modified']) : null,
     data: value,
   }
+  if (cacheDir !== '') writeJsonFile(join(cacheDir, 'curated.json'), served)
   return { ok: true, value }
 }
