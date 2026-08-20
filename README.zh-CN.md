@@ -63,7 +63,7 @@ dsh plugin --profile web add github:zhuoxuanliu53-svg/dsh-plugin-market
 ## 文档
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md) — 架构与开发说明
-- [README.en.md](./README.en.md) — English
+- [README.md](./README.md) — English
 
 ## License
 

@@ -63,7 +63,7 @@ Data is stored only in the local profile.
 ## Documentation
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md) — architecture and development notes
-- [README.md](./README.md) — 中文
+- [README.zh-CN.md](./README.zh-CN.md) — 中文
 
 ## License
 
