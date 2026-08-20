@@ -20,7 +20,7 @@ src/
   index.js            Host 入口 —— 装配 webServer/loader、解析 profile、启动服务器
   routes.js           HTTP 端点、安装分发、状态持久化
   shape.js            仓库形态识别（bundle / skill / preset / other）
-  entities.js         curated/GitHub 映射、分桶合并与去重
+  entities.js         curated/GitHub 映射、条目身份（id/fullName/subpath/displayName）、分桶合并与去重
   installer.js        dsh CLI 封装：安装 / 更新 / 卸载、spec 解析
   install-skill.js    skill 安装器（克隆 → 定位 SKILL.md → 复制 → 校验）
   install-preset.js   preset 安装器（克隆 → 定位 agent.cordis.yml → 复制 → 校验）
@@ -64,6 +64,22 @@ cordis.patch.yml      bundle 补丁层声明
 
 优先级为 `bundle > preset > skill`，因为 bundle 也可能附带一份文档性质的 `SKILL.md`。
 
+## 条目身份模型
+
+curated 清单里，monorepo 子目录插件用 `name` 带 `#` 后缀（如 `dsh-web-ui#packages/dsh-web-ui-all`）、`url` 带 `/tree/<branch>/<subpath>` 链接表示。为不让 `#` 污染身份、并让同仓库的兄弟子目录彼此独立，每个条目由四个字段描述：
+
+| 字段 | 含义 | 例子 |
+| --- | --- | --- |
+| `fullName` | GitHub 仓库全名（合规 `owner/repo`） | `ethanyoq/ai-novel-writer` |
+| `subpath` | 子目录路径（无则空串），取自 `url` 的 `/tree/` 段 | `plugins/dsh-ai-novel-writer` |
+| `id` | 条目唯一标识 = `fullName`，或 `fullName#path:/subpath`（pnpm 语法） | `ethanyoq/ai-novel-writer#path:/plugins/dsh-ai-novel-writer` |
+| `displayName` | 卡片标题 = `name` 里 `#` 后最后一段 | `dsh-ai-novel-writer` |
+
+- `parseSourceUrl()`（`src/entities.js`）用 URL 标准解析从 `url` 提取 repo + subpath——`url` 才是子目录完整路径的权威来源，`name` 的 `#` 只是短标识，不参与身份判定。
+- 后端操作（安装 / 关注 / 热开关 / 名单）以 `id` 为 key；`isEntryId()`（`src/contracts.js`）校验其形状（`owner/repo` 或 `owner/repo#path:/subpath`）。
+- 去重按 `id`，因此同一仓库的多个子目录插件（如 `DamonKoy/dsh-web-ui` 的 12 个）各占一条、互不覆盖。
+- 旧 `state.json` 无含 `#` 的记录（安装曾被 `isFullName` 拒绝），普通插件 `id === fullName`，故无需迁移。
+
 ## 安装流程
 
 安装按 `entry.shape` 分发：
@@ -74,11 +90,11 @@ cordis.patch.yml      bundle 补丁层声明
 | skill | `install-skill.js` | `git clone --depth 1` → 定位 `SKILL.md` → 校验 frontmatter（kebab-case name + description）→ 复制到 `<DSH_HOME>/skills/<name>/` | 不需要（watch 生效） |
 | preset | `install-preset.js` | `git clone --depth 1` → 定位 `agent.cordis.yml` → 推导 id → 复制到 `<DSH_HOME>/.agent-presets/<id>/` | 不需要（重新读取） |
 
-bundle 安装 spec 来自清单 `install` 字段，覆盖 npm、`github:owner/repo`、scoped npm、monorepo `github:owner/repo#path:/subdir`（85 条）。`installSpecFor()`（`src/installer.js`）负责解析；切勿仅凭 `fullName` 重建 spec，否则会丢失 `#path` 段。
+bundle 安装 spec 来自清单 `install` 字段，覆盖 npm、scoped npm、`github:owner/repo`、monorepo `github:owner/repo#path:/subdir`、GitHub release tarball URL 五种形态（`install` 字段 1725 条全覆盖，其中 `#path` 条目 156 条）。`installSpecFor()`（`src/installer.js`）负责解析，优先级为 `install` > `npm` > 由 `subpath` 重建 `github:owner/repo[#path:/subpath]`；切勿仅凭 `fullName` 重建 spec，否则会丢失 `#path` 段。
 
 ## 自我重启
 
-`src/restart.js` 复刻 `dsh-market` 的重启模式：
+`src/restart.js` 采用分离式自我重启：
 
 1. 从 `process.argv` 计算重启命令（`dshArgv()`）与可执行文件（`nodeExecutable()`）。
 2. 启动一个**分离**的帮助进程（`node -e <script>`），其：
