@@ -46,7 +46,6 @@
     "client",
     "cordis.patch.yml",
     "README.md",
-    "README.zh-CN.md",
-    "DEVELOPMENT.md"
+    "README.zh-CN.md"
   ]
 }

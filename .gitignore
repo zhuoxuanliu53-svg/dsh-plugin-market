@@ -1,12 +1,16 @@
-# 依赖与构建产物
+# dependencies & build output
 node_modules/
 dist/
 lib/
 *.log
 
-# 运行时导出产物（不进入版本库）
+# runtime export artifacts
 exports/
 
-# 编辑器/系统
+# local development docs (not published)
+PLAN.md
+DEVELOPMENT.md
+
+# OS / editor
 .DS_Store
 Thumbs.db

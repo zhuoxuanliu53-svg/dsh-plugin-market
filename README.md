@@ -60,9 +60,8 @@ After installation, refresh the page and open Settings → Plugin Market.
 
 Data is stored only in the local profile.
 
-## Documentation
+## Languages
 
-- [DEVELOPMENT.md](./DEVELOPMENT.md) — architecture and development notes
 - [README.zh-CN.md](./README.zh-CN.md) — 中文
 
 ## License

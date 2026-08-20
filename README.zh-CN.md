@@ -60,9 +60,8 @@ dsh plugin --profile web add github:zhuoxuanliu53-svg/dsh-plugin-market
 
 数据仅保存在本地 profile。
 
-## 文档
+## 语言
 
-- [DEVELOPMENT.md](./DEVELOPMENT.md) — 架构与开发说明
 - [README.md](./README.md) — English
 
 ## License
